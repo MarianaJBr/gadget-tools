@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "sims-toolkit"
+version = "0.1.0"
+description = "A collection of libraries and scripts to analyze the outputs of cosmological simulations."
+authors = [
+  "Mariana Jaber <mariana.ifunam@gmail.com>",
+  "Omar Abel Rodríguez-López <oarodriguez.mx@gmail.com>"
+]
+license = "Apache-2.0"
+homepage = "https://github.com/Sims-Toolkit"
+repository = "https://github.com/Sims-Toolkit"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics"
+]
+
+packages = [
+  { include = "sims_toolkit", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+numpy = "^1.18.1"
+scipy = "^1.4.1"
+click = "^7.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
