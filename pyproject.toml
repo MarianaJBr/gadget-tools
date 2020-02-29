@@ -2,6 +2,7 @@
 name = "sims-toolkit"
 version = "0.1.0"
 description = "A collection of libraries and scripts to analyze the outputs of cosmological simulations."
+readme = "README.md"
 authors = [
   "Mariana Jaber <mariana.ifunam@gmail.com>",
   "Omar Abel Rodríguez-López <oarodriguez.mx@gmail.com>"
