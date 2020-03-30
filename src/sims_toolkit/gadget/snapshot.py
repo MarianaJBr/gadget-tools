@@ -308,13 +308,22 @@ def read_block_spec(file: BinaryIO_T):
     return BlockSpec(id_str, total_size)
 
 
-def load_snapshot(file: BinaryIO_T):
+def load_snapshot(file: BinaryIO_T,
+                  blocks: typ.Sequence[BlockID] = None):
     """Load the data from a snapshot file.
 
     :param file: A snapshot file object opened in binary mode.
+    :param blocks: The blocks to load from the snapshot. If this argument
+        is ``None``, then the routine loads the whole snapshot file.
     :return: The snapshot data.
     """
     block_type_members: typ.Dict[str, BlockType] = BlockType.__members__
+    if blocks is None:
+        # Read all of the blocks.
+        blocks: typ.Set[BlockID] = set(BlockID.__members__.values())
+    else:
+        blocks: typ.Set[BlockID] = set(blocks)
+        blocks.add(BlockID.HEAD)
     snap_data = {}
     # Read snapshot header.
     header_info = read_block_spec(file)
@@ -328,6 +337,10 @@ def load_snapshot(file: BinaryIO_T):
             block_id = block_spec.id
             if block_id not in block_type_members.keys():
                 # Unrecognized block. Do not load any data.
+                skip_block(file, block_spec.total_size)
+                continue
+            if BlockID[block_id] not in blocks:
+                # Block not required. Do not load any data.
                 skip_block(file, block_spec.total_size)
                 continue
             block_type: Block = block_type_members[block_id].value
