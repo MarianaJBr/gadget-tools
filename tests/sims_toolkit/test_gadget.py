@@ -5,6 +5,7 @@ import attr
 import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import load_snapshot
+from sims_toolkit.gadget.snapshot import Header
 
 load_dotenv()
 
@@ -53,3 +54,12 @@ def test_load_header(snapshot_path):
     assert header is not None
     for id_, block in snapshot_data_dict.items():
         assert block is None
+
+
+def test_header_as_data(snapshot_path):
+    """"""
+    with open(snapshot_path, "rb") as g2fp:
+        snapshot_data = load_snapshot(g2fp, blocks=())
+    header = snapshot_data.header
+    header_as_data = header.as_data()
+    assert header == Header.from_data(header_as_data)

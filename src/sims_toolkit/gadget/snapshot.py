@@ -125,6 +125,26 @@ class Header:
         """
         size = read_size_from_delim(file)
         data = np.fromfile(file, dtype=header_dtype, count=1)[0]
+        # Skip the remaining header bytes.
+        skip_block(file, size=size - data.nbytes)
+        skip_block_delim(file)
+        return cls.from_data(data)
+
+    def as_data(self):
+        """Convert the snapshot file header to a numpy array.
+
+        :return: The snapshot header data as a numpy array.
+        """
+        data = attr.astuple(self)
+        return np.array(data, dtype=header_dtype)
+
+    @classmethod
+    def from_data(cls, data: np.ndarray):
+        """Read the snapshot header from a numpy array.
+
+        :param data: The snapshot header data.
+        :return: The snapshot header data as a ``Header`` type instance.
+        """
         num_part_spec = NumPartSpec(*data['Npart'])
         mass_part_spec = MassPartSpec(*data["Massarr"])
         num_part_total = NumPartSpec(*data["Nall"])
@@ -141,9 +161,6 @@ class Header:
                      omega_zero=data["Omega0"],
                      omega_lambda=data["OmegaLambda"],
                      hubble_param=data["HubbleParam"])
-        # Skip the remaining header bytes.
-        skip_block(file, size=size - data.nbytes)
-        skip_block_delim(file)
         return header
 
 
