@@ -19,10 +19,28 @@ def snapshot_path():
     return pathlib.Path(snapshot_path)
 
 
+@pytest.fixture
+def alt_snapshot_path():
+    """Return the path of a testing snapshot file."""
+    path_env_var = os.getenv("ST_TEST_SNAPSHOT_NO_ALT")
+    snapshot_path = os.path.abspath(os.path.expanduser(path_env_var))
+    if not os.path.exists(snapshot_path):
+        pytest.skip("snapshot file not available")
+    return pathlib.Path(snapshot_path)
+
+
 def test_load_snapshot(snapshot_path):
     """"""
     with open(snapshot_path, "rb") as g2fp:
         snapshot_data = load_snapshot(g2fp)
+    print(snapshot_data)
+
+
+def test_load_snapshot_no_alt(alt_snapshot_path):
+    """"""
+    with open(alt_snapshot_path, "rb") as g2fp:
+        snapshot_data = load_snapshot(g2fp, blocks=(),
+                                      alt_snap_format=False)
     print(snapshot_data)
 
 

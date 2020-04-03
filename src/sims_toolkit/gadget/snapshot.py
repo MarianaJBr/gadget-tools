@@ -3,6 +3,7 @@ import sys
 import typing as typ
 from abc import ABCMeta, abstractmethod
 from enum import Enum, unique
+from itertools import count
 
 import attr
 import numpy as np
@@ -33,20 +34,24 @@ def read_size_from_delim(file: BinaryIO_T):
     return int.from_bytes(size_bytes, sys.byteorder)
 
 
-def skip_block_delim(file: BinaryIO_T):
+def skip_block_delim(file: BinaryIO_T, reverse: bool = False):
     """Skip a delimiter block.
 
     :param file: Snapshot file.
+    :param reverse: Skip the block backwards.
     """
-    file.seek(BLOCK_DELIM_SIZE, io.SEEK_CUR)
+    size = -BLOCK_DELIM_SIZE if reverse else BLOCK_DELIM_SIZE
+    file.seek(size, io.SEEK_CUR)
 
 
-def skip_block(file: BinaryIO_T, size: int):
+def skip_block(file: BinaryIO_T, size: int, reverse: bool = False):
     """Skip a block of ``size`` bytes.
 
     :param file: Snapshot file.
     :param size: Size of block in bytes.
+    :param reverse: Skip the block backwards.
     """
+    size = -size if reverse else size
     file.seek(size, io.SEEK_CUR)
 
 
@@ -286,65 +291,92 @@ class BlockType(Enum):
 @attr.s(auto_attribs=True)
 class BlockSpec:
     """"""
-    id: str
+    id_str: str
     total_size: int
 
 
-def read_block_spec(file: BinaryIO_T):
-    """
+def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
+    """Load the identified and size of a snapshot block.
 
-    :param file:
+    :param file: A snapshot file object opened in binary mode.
+    :param alt_snap_format: If ``True``, the routine assumes that the
+        snapshot was created with ``SnapFormat=2``.
     :return:
     """
-    # Read the block ID from the additional block
     size = read_size_from_delim(file)
-    body_bytes = file.read(size)
-    id_bytes = body_bytes[:BLOCK_ID_SIZE].decode("ascii")
-    id_str = str(id_bytes).rstrip()
-    # Get the total size (including delimiter blocks) of the block's data
-    total_size_bytes = body_bytes[BLOCK_ID_SIZE:]
-    total_size = int.from_bytes(total_size_bytes, sys.byteorder)
-    skip_block_delim(file)
+    if alt_snap_format:
+        # Read the block ID from the additional block
+        body_bytes = file.read(size)
+        id_bytes = body_bytes[:BLOCK_ID_SIZE].decode("ascii")
+        id_str = str(id_bytes).rstrip()
+        # Get the total size (including delimiter blocks) of the block's data
+        total_size_bytes = body_bytes[BLOCK_ID_SIZE:]
+        total_size = int.from_bytes(total_size_bytes, sys.byteorder)
+        skip_block_delim(file)
+    else:
+        # This is the data block. There is no additional block to read
+        # the data block ID from.
+        id_str = "UNKNOWN"
+        total_size = size + 2 * BLOCK_DELIM_SIZE
+        # Return to the start of the data block.
+        skip_block_delim(file, reverse=True)
     return BlockSpec(id_str, total_size)
 
 
 def load_snapshot(file: BinaryIO_T,
-                  blocks: typ.Sequence[BlockID] = None):
+                  blocks: typ.Sequence[BlockID] = None,
+                  alt_snap_format: bool = True):
     """Load the data from a snapshot file.
 
     :param file: A snapshot file object opened in binary mode.
     :param blocks: The blocks to load from the snapshot. If this argument
         is ``None``, then the routine loads the whole snapshot file.
+    :param alt_snap_format: If ``True``, the routine assumes that the
+        snapshot was created with ``SnapFormat=2``.
     :return: The snapshot data.
     """
     block_type_members: typ.Dict[str, BlockType] = BlockType.__members__
     if blocks is None:
         # Read all of the blocks.
-        blocks: typ.Set[BlockID] = set(BlockID.__members__.values())
+        blocks_ids: typ.List[BlockID] = list(BlockID.__members__.values())
+        if not alt_snap_format:
+            blocks_ids = []
     else:
-        blocks: typ.Set[BlockID] = set(blocks)
-        blocks.add(BlockID.HEAD)
+        blocks_ids: typ.List[BlockID] = list(blocks)
+        if BlockID.HEAD in blocks_ids:
+            blocks_ids.remove(BlockID.HEAD)
+        # blocks_ids.insert(0, BlockID.HEAD)
     snap_data = {}
     # Read snapshot header.
-    header_info = read_block_spec(file)
-    header_id = header_info.id
+    header_spec = read_block_spec(file, alt_snap_format)
+    if not alt_snap_format:
+        header_spec = attr.evolve(header_spec, id_str=BlockID.HEAD.name)
+    header_id_str = header_spec.id_str
     header = Header.from_file(file)
-    snap_data[BlockID[header_id].value] = header
+    # NOTE: This seems a bit redundant.
+    snap_data[BlockID[header_id_str].value] = header
     # Read the rest of the blocks.
     try:
-        while True:
-            block_spec = read_block_spec(file)
-            block_id = block_spec.id
-            if block_id not in block_type_members.keys():
+        for block_idx in count():
+            if not alt_snap_format:
+                if not blocks_ids[block_idx:]:
+                    break
+            block_spec = read_block_spec(file, alt_snap_format)
+            if not alt_snap_format:
+                # Set explicitly the block spec ID.
+                block_id_str = blocks_ids[block_idx].name
+                block_spec = attr.evolve(block_spec, id_str=block_id_str)
+            block_id_str = block_spec.id_str
+            if block_id_str not in block_type_members.keys():
                 # Unrecognized block. Do not load any data.
                 skip_block(file, block_spec.total_size)
                 continue
-            if BlockID[block_id] not in blocks:
+            if BlockID[block_id_str] not in blocks_ids:
                 # Block not required. Do not load any data.
                 skip_block(file, block_spec.total_size)
                 continue
-            block_type: Block = block_type_members[block_id].value
-            block_fancy_name = BlockID[block_id].value
+            block_type: Block = block_type_members[block_id_str].value
+            block_fancy_name = BlockID[block_id_str].value
             block_data = block_type.from_file(file, header)
             snap_data[block_fancy_name] = block_data
     except SnapshotEOFError:
