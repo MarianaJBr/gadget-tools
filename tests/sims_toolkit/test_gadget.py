@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 import attr
 import pytest
@@ -8,24 +9,28 @@ from sims_toolkit.gadget import load_snapshot
 load_dotenv()
 
 
-def test_load_snapshot():
-    """"""
-    snapshot = os.path.expanduser(os.getenv("ST_TEST_SNAPSHOT"))
-    if not os.path.exists(snapshot):
+@pytest.fixture
+def snapshot_path():
+    """Return the path of a testing snapshot file."""
+    path_env_var = os.getenv("ST_TEST_SNAPSHOT")
+    snapshot_path = os.path.abspath(os.path.expanduser(path_env_var))
+    if not os.path.exists(snapshot_path):
         pytest.skip("snapshot file not available")
-    with open(snapshot, "rb") as g2fp:
+    return pathlib.Path(snapshot_path)
+
+
+def test_load_snapshot(snapshot_path):
+    """"""
+    with open(snapshot_path, "rb") as g2fp:
         snapshot_data = load_snapshot(g2fp)
     print(snapshot_data)
 
 
-def test_load_header():
+def test_load_header(snapshot_path):
     """"""
-    snapshot = os.path.expanduser(os.getenv("ST_TEST_SNAPSHOT"))
-    if not os.path.exists(snapshot):
-        pytest.skip("snapshot file not available")
-    with open(snapshot, "rb") as g2fp:
-        snapshot_data_dict = load_snapshot(g2fp, blocks=())
-    snapshot_data_dict = attr.asdict(snapshot_data_dict, recurse=False)
+    with open(snapshot_path, "rb") as g2fp:
+        snapshot_data = load_snapshot(g2fp, blocks=())
+    snapshot_data_dict = attr.asdict(snapshot_data, recurse=False)
     header = snapshot_data_dict.pop("header")
     assert header is not None
     for id_, block in snapshot_data_dict.items():
