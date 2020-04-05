@@ -168,8 +168,6 @@ class Header:
 class Block(metaclass=ABCMeta):
     """Snapshot data block."""
 
-    data: np.ndarray
-
     @staticmethod
     @abstractmethod
     def data_from_file(file: BinaryIO_T, header: Header):
@@ -177,23 +175,17 @@ class Block(metaclass=ABCMeta):
         pass
 
 
+# noinspection DuplicatedCode
 @attr.s(auto_attribs=True)
 class Position(Block):
     """Positions of the particles."""
 
-    data: np.ndarray
-
-    @property
-    def x_coord(self):
-        return self.data[:, 0]
-
-    @property
-    def y_coord(self):
-        return self.data[:, 1]
-
-    @property
-    def z_coord(self):
-        return self.data[:, 2]
+    gas: typ.Optional[np.ndarray] = None
+    halo: typ.Optional[np.ndarray] = None
+    disk: typ.Optional[np.ndarray] = None
+    bulge: typ.Optional[np.ndarray] = None
+    stars: typ.Optional[np.ndarray] = None
+    bndry: typ.Optional[np.ndarray] = None
 
     @staticmethod
     def data_from_file(file: BinaryIO_T, header: Header):
@@ -211,23 +203,17 @@ class Position(Block):
         return data
 
 
+# noinspection DuplicatedCode
 @attr.s(auto_attribs=True)
 class Velocity(Block):
     """Velocities of the particles."""
 
-    data: np.ndarray
-
-    @property
-    def x_coord(self):
-        return self.data[:, 0]
-
-    @property
-    def y_coord(self):
-        return self.data[:, 1]
-
-    @property
-    def z_coord(self):
-        return self.data[:, 2]
+    gas: typ.Optional[np.ndarray] = None
+    halo: typ.Optional[np.ndarray] = None
+    disk: typ.Optional[np.ndarray] = None
+    bulge: typ.Optional[np.ndarray] = None
+    stars: typ.Optional[np.ndarray] = None
+    bndry: typ.Optional[np.ndarray] = None
 
     @staticmethod
     def data_from_file(file: BinaryIO_T, header: Header):
@@ -249,7 +235,12 @@ class Velocity(Block):
 class IDs(Block):
     """Particles identifiers."""
 
-    data: np.ndarray
+    gas: typ.Optional[np.ndarray] = None
+    halo: typ.Optional[np.ndarray] = None
+    disk: typ.Optional[np.ndarray] = None
+    bulge: typ.Optional[np.ndarray] = None
+    stars: typ.Optional[np.ndarray] = None
+    bndry: typ.Optional[np.ndarray] = None
 
     @staticmethod
     def data_from_file(file: BinaryIO_T, header: Header):
