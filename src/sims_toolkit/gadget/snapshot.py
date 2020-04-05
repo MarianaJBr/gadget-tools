@@ -81,7 +81,7 @@ class NumPartSpec:
     halo: int
     disk: int
     bulge: int
-    starts: int
+    stars: int
     bndry: int
 
     @property
