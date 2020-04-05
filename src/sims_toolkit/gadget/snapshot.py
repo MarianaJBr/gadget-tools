@@ -145,6 +145,7 @@ class Header:
         :param data: The snapshot header data.
         :return: The snapshot header data as a ``Header`` type instance.
         """
+        assert data.dtype == header_dtype
         num_part_spec = NumPartSpec(*data['Npart'])
         mass_part_spec = MassPartSpec(*data["Massarr"])
         num_part_total = NumPartSpec(*data["Nall"])
@@ -202,10 +203,11 @@ class Position(Block):
         :param header: The snapshot header.
         :return: The positions data as a ``Position`` type instance.
         """
-        skip_block_delim(file)
+        size = read_size_from_delim(file)
         num_items = header.num_part.total * 3
-        data = np.fromfile(file, dtype="f4", count=num_items)
+        data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
+        assert size == data.nbytes
         return data
 
 
@@ -235,10 +237,11 @@ class Velocity(Block):
         :param header: The snapshot header.
         :return: The velocities data as a ``Velocity`` type instance.
         """
-        skip_block_delim(file)
+        size = read_size_from_delim(file)
         num_items = header.num_part.total * 3
-        data = np.fromfile(file, dtype="f4", count=num_items)
+        data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
+        assert size == data.nbytes
         return data
 
 
@@ -256,10 +259,11 @@ class IDs(Block):
         :param header: The snapshot header.
         :return: The identifiers as a ``IDs`` type instance.
         """
-        skip_block_delim(file)
+        size = read_size_from_delim(file)
         num_items = header.num_part.total
-        data = np.fromfile(file, dtype="i4", count=num_items)
+        data: np.ndarray = np.fromfile(file, dtype="i4", count=num_items)
         skip_block_delim(file)
+        assert size == data.nbytes
         return data
 
 
