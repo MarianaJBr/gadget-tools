@@ -169,9 +169,9 @@ class Block(metaclass=ABCMeta):
 
     data: np.ndarray
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def from_file(cls, file: BinaryIO_T, header: Header):
+    def data_from_file(file: BinaryIO_T, header: Header):
         """Read the block data from file."""
         pass
 
@@ -194,8 +194,8 @@ class Position(Block):
     def z_coord(self):
         return self.data[:, 2]
 
-    @classmethod
-    def from_file(cls, file: BinaryIO_T, header: Header):
+    @staticmethod
+    def data_from_file(file: BinaryIO_T, header: Header):
         """Read the positions data from file.
 
         :param file: Snapshot file.
@@ -206,7 +206,7 @@ class Position(Block):
         num_items = header.num_part.total * 3
         data = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
-        return cls(data)
+        return data
 
 
 @attr.s(auto_attribs=True)
@@ -227,8 +227,8 @@ class Velocity(Block):
     def z_coord(self):
         return self.data[:, 2]
 
-    @classmethod
-    def from_file(cls, file: BinaryIO_T, header: Header):
+    @staticmethod
+    def data_from_file(file: BinaryIO_T, header: Header):
         """Read the velocities data from a snapshot file.
 
         :param file: Snapshot file.
@@ -239,7 +239,7 @@ class Velocity(Block):
         num_items = header.num_part.total * 3
         data = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
-        return cls(data)
+        return data
 
 
 @attr.s(auto_attribs=True)
@@ -248,8 +248,8 @@ class IDs(Block):
 
     data: np.ndarray
 
-    @classmethod
-    def from_file(cls, file: BinaryIO_T, header: Header):
+    @staticmethod
+    def data_from_file(file: BinaryIO_T, header: Header):
         """Read the particles identifiers from a snapshot file.
 
         :param file: Snapshot file.
@@ -260,16 +260,17 @@ class IDs(Block):
         num_items = header.num_part.total
         data = np.fromfile(file, dtype="i4", count=num_items)
         skip_block_delim(file)
-        return cls(data)
+        return data
 
 
 @attr.s(auto_attribs=True)
 class SnapshotData:
     """Snapshot File Data"""
     header: Header
-    positions: typ.Optional[Position] = None
-    velocities: typ.Optional[Velocity] = None
+    positions: typ.Optional[np.ndarray] = None
+    velocities: typ.Optional[np.ndarray] = None
     ids: typ.Optional[np.ndarray] = None
+    masses: typ.Optional[np.ndarray] = None
 
 
 @unique
@@ -394,7 +395,7 @@ def load_snapshot(file: BinaryIO_T,
                 continue
             block_type: Block = block_type_members[block_id_str].value
             block_fancy_name = BlockID[block_id_str].value
-            block_data = block_type.from_file(file, header)
+            block_data = block_type.data_from_file(file, header)
             snap_data[block_fancy_name] = block_data
     except SnapshotEOFError:
         # Iteration has been broken as expected. Just continue
