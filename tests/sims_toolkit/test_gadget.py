@@ -4,7 +4,7 @@ import attr
 import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import load_snapshot
-from sims_toolkit.gadget.snapshot import Header, inspect_struct
+from sims_toolkit.gadget.snapshot import BlockID, Header, inspect_struct
 
 load_dotenv()
 
@@ -45,7 +45,8 @@ def test_load_snapshot(snapshot_spec):
     path = snapshot_spec.path
     alt_snap_format = snapshot_spec.alt_snap_format
     with open(path, "rb") as g2fp:
-        snapshot_data = load_snapshot(g2fp, alt_snap_format=alt_snap_format)
+        snapshot_data = load_snapshot(g2fp, blocks=BlockID.common(),
+                                      alt_snap_format=alt_snap_format)
     print(snapshot_data)
 
 

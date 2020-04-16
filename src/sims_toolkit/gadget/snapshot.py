@@ -3,7 +3,7 @@ import sys
 import typing as typ
 from abc import ABCMeta, abstractmethod
 from enum import Enum, unique
-from itertools import count
+from itertools import starmap
 
 import attr
 import numpy as np
@@ -268,37 +268,41 @@ class SnapshotData:
     masses: typ.Optional[np.ndarray] = None
 
 
+@attr.s(auto_attribs=True)
+class BlockIDValue:
+    py_id: str
+    type: typ.Type[Block] = None
+
+
 @unique
 class BlockID(Enum):
     """"""
-    HEAD = "header"
-    POS = "positions"
-    VEL = "velocities"
-    ID = "ids"
-    MASS = "masses"
-    U = "internal_energy"
-    RHO = "density"
-    HSLM = "smoothing_length"
-    POT = "potential"
-    ACCE = "acceleration"
-    ENDT = "entropy_rate_of_change"
-    TSTP = "time_step"
+    HEAD = BlockIDValue("header")
+    POS = BlockIDValue("positions", Position)
+    VEL = BlockIDValue("velocities", Velocity)
+    ID = BlockIDValue("ids", IDs)
+    MASS = BlockIDValue("masses")
+    U = BlockIDValue("internal_energy")
+    RHO = BlockIDValue("density")
+    HSLM = BlockIDValue("smoothing_length")
+    POT = BlockIDValue("potential")
+    ACCE = BlockIDValue("acceleration")
+    ENDT = BlockIDValue("entropy_rate_of_change")
+    TSTP = BlockIDValue("time_step")
 
+    def __init__(self, value: BlockIDValue):
+        self.py_id = value.py_id
+        self.type = value.type
 
-@unique
-class BlockType(Enum):
-    """The available block types in a snapshot file (excluding the header)"""
-    POS = Position
-    VEL = Velocity
-    ID = IDs
-    # MASS = Block
-    # U = Block
-    # RHO = Block
-    # HSLM = Block
-    # POT = Block
-    # ACCE = Block
-    # ENDT = Block
-    # TSTP = Block
+    @staticmethod
+    def all():
+        """Return all available BlockID members."""
+        return list(BlockID.__members__.values())
+
+    @staticmethod
+    def common():
+        """Return most common BlockID members."""
+        return [BlockID.POS, BlockID.VEL, BlockID.ID]
 
 
 @attr.s(auto_attribs=True)
@@ -307,6 +311,15 @@ class BlockSpec:
     total_size: int
     data_stream_pos: int
     id_str: str = None
+
+    @property
+    def id(self) -> BlockID:
+        """"""
+        return BlockID[self.id_str]
+
+    def seek_stream_pos(self, file: BinaryIO_T):
+        """"""
+        file.seek(self.data_stream_pos)
 
 
 def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
@@ -365,6 +378,49 @@ def inspect_struct(file: BinaryIO_T,
         return
 
 
+def load_blocks_specs(file: BinaryIO_T,
+                      blocks: typ.Sequence[BlockID] = None,
+                      alt_snap_format: bool = True):
+    """Load the requested blocks specs from a snapshot file.
+
+    :param file: A snapshot file object opened in binary mode.
+    :param blocks: The blocks to load from the snapshot. If this argument
+        is ``None`` or an empty sequence, the routine only loads the header.
+    :param alt_snap_format: If ``True``, the routine assumes that the
+        snapshot was created with ``SnapFormat=2``.
+    :return: The snapshot blocks specs.
+    """
+    blocks_ids: typ.List[BlockID] = list(blocks or [])
+    if BlockID.HEAD in blocks_ids:
+        blocks_ids.remove(BlockID.HEAD)
+    blocks_ids.insert(0, BlockID.HEAD)
+
+    def should_load(_block_spec: BlockSpec):
+        """Should we load a particular block?"""
+        try:
+            if _block_spec.id in blocks_ids:
+                return True
+            if _block_spec.id.type is None:
+                return False
+        except KeyError:
+            pass
+        return False
+
+    def patch_spec(_block_spec: BlockSpec, block_id: BlockID):
+        """Set the ID string of a BlockSpec manually."""
+        id_str = block_id.name
+        return attr.evolve(_block_spec, id_str=id_str)
+
+    # Get the concrete structure, not a lazy iterator.
+    snapshot_struct = list(inspect_struct(file, alt_snap_format))
+    if alt_snap_format:
+        blocks_specs = filter(should_load, snapshot_struct)
+    else:
+        blocks_specs_ids = zip(snapshot_struct, blocks_ids)
+        blocks_specs = starmap(patch_spec, blocks_specs_ids)
+    return blocks_specs
+
+
 def load_snapshot(file: BinaryIO_T,
                   blocks: typ.Sequence[BlockID] = None,
                   alt_snap_format: bool = True):
@@ -372,57 +428,25 @@ def load_snapshot(file: BinaryIO_T,
 
     :param file: A snapshot file object opened in binary mode.
     :param blocks: The blocks to load from the snapshot. If this argument
-        is ``None``, then the routine loads the whole snapshot file.
+        is ``None`` or an empty sequence, the routine only loads the header.
     :param alt_snap_format: If ``True``, the routine assumes that the
         snapshot was created with ``SnapFormat=2``.
     :return: The snapshot data.
     """
-    block_type_members: typ.Dict[str, BlockType] = BlockType.__members__
-    if blocks is None:
-        # Read all of the blocks.
-        blocks_ids: typ.List[BlockID] = list(BlockID.__members__.values())
-        if not alt_snap_format:
-            blocks_ids = []
-    else:
-        blocks_ids: typ.List[BlockID] = list(blocks)
-        if BlockID.HEAD in blocks_ids:
-            blocks_ids.remove(BlockID.HEAD)
-        # blocks_ids.insert(0, BlockID.HEAD)
-    snap_data = {}
+    # Load the requested blocks specs.
+    blocks_specs = load_blocks_specs(file, blocks, alt_snap_format)
     # Read snapshot header.
-    header_spec = read_block_spec(file, alt_snap_format)
-    if not alt_snap_format:
-        header_spec = attr.evolve(header_spec, id_str=BlockID.HEAD.name)
-    header_id_str = header_spec.id_str
+    header_spec = next(blocks_specs)
+    header_spec.seek_stream_pos(file)
     header = Header.from_file(file)
-    # NOTE: This seems a bit redundant.
-    snap_data[BlockID[header_id_str].value] = header
+    snapshot_data = {
+        header_spec.id.py_id: header
+    }
     # Read the rest of the blocks.
-    try:
-        for block_idx in count():
-            if not alt_snap_format:
-                if not blocks_ids[block_idx:]:
-                    break
-            block_spec = read_block_spec(file, alt_snap_format)
-            if not alt_snap_format:
-                # Set explicitly the block spec ID.
-                block_id_str = blocks_ids[block_idx].name
-                block_spec = attr.evolve(block_spec, id_str=block_id_str)
-            block_id_str = block_spec.id_str
-            if block_id_str not in block_type_members.keys():
-                # Unrecognized block. Do not load any data.
-                skip(file, block_spec.total_size)
-                continue
-            if BlockID[block_id_str] not in blocks_ids:
-                # Block not required. Do not load any data.
-                skip(file, block_spec.total_size)
-                continue
-            block_type: Block = block_type_members[block_id_str].value
-            block_fancy_name = BlockID[block_id_str].value
-            block_data = block_type.data_from_file(file, header)
-            snap_data[block_fancy_name] = block_data
-    except SnapshotEOFError:
-        # Iteration has been broken as expected. Just continue
-        # with the code execution.
-        pass
-    return SnapshotData(**snap_data)
+    for block_spec in blocks_specs:
+        block_spec.seek_stream_pos(file)
+        block_type = block_spec.id.type
+        block_py_id = block_spec.id.py_id
+        block_data = block_type.data_from_file(file, header)
+        snapshot_data[block_py_id] = block_data
+    return SnapshotData(**snapshot_data)
