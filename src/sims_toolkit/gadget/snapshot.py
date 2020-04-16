@@ -304,9 +304,9 @@ class BlockType(Enum):
 @attr.s(auto_attribs=True)
 class BlockSpec:
     """"""
-    id_str: str
     total_size: int
     data_stream_pos: int
+    id_str: str = None
 
 
 def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
@@ -331,12 +331,12 @@ def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
     else:
         # This is the data block. There is no additional block to read
         # the data block ID from.
-        id_str = "UNKNOWN"
+        id_str = None
         total_size = size + 2 * BLOCK_DELIM_SIZE
         # Return to the start of the data block.
         skip_block_delim(file, reverse=True)
         data_stream_pos = file.tell()
-    return BlockSpec(id_str, total_size, data_stream_pos)
+    return BlockSpec(total_size, data_stream_pos, id_str)
 
 
 def inspect_struct(file: BinaryIO_T,
