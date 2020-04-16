@@ -306,6 +306,7 @@ class BlockSpec:
     """"""
     id_str: str
     total_size: int
+    data_stream_pos: int
 
 
 def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
@@ -326,6 +327,7 @@ def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
         total_size_bytes = body_bytes[BLOCK_ID_SIZE:]
         total_size = int.from_bytes(total_size_bytes, sys.byteorder)
         skip_block_delim(file)
+        data_stream_pos = file.tell()
     else:
         # This is the data block. There is no additional block to read
         # the data block ID from.
@@ -333,7 +335,8 @@ def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
         total_size = size + 2 * BLOCK_DELIM_SIZE
         # Return to the start of the data block.
         skip_block_delim(file, reverse=True)
-    return BlockSpec(id_str, total_size)
+        data_stream_pos = file.tell()
+    return BlockSpec(id_str, total_size, data_stream_pos)
 
 
 def load_snapshot(file: BinaryIO_T,
