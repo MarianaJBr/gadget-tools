@@ -196,11 +196,12 @@ class Position(Block):
         :return: The positions data as a ``Position`` type instance.
         """
         size = read_size_from_delim(file)
-        num_items = header.num_part.total * 3
+        num_part_total = header.num_part.total
+        num_items = num_part_total * 3
         data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
         assert size == data.nbytes
-        return data
+        return data.reshape((num_part_total, 3))
 
 
 # noinspection DuplicatedCode
@@ -223,12 +224,7 @@ class Velocity(Block):
         :param header: The snapshot header.
         :return: The velocities data as a ``Velocity`` type instance.
         """
-        size = read_size_from_delim(file)
-        num_items = header.num_part.total * 3
-        data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
-        skip_block_delim(file)
-        assert size == data.nbytes
-        return data
+        return Position.data_from_file(file, header)
 
 
 @attr.s(auto_attribs=True)
