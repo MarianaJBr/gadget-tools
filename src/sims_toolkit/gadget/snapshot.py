@@ -339,6 +339,32 @@ def read_block_spec(file: BinaryIO_T, alt_snap_format: bool = True):
     return BlockSpec(id_str, total_size, data_stream_pos)
 
 
+def inspect_struct(file: BinaryIO_T,
+                   alt_snap_format: bool = True):
+    """Inspect the basic structure of a snapshot.
+
+    :param file: A snapshot file object opened in binary mode.
+    :param alt_snap_format: If ``True``, the routine assumes that the
+        snapshot was created with ``SnapFormat=2``.
+    """
+    # Read snapshot header spec.
+    header_spec = read_block_spec(file, alt_snap_format)
+    # Update the ID string.
+    header_spec = attr.evolve(header_spec, id_str=BlockID.HEAD.name)
+    yield header_spec
+    skip(file, header_spec.total_size)
+    # Read the rest of the blocks.
+    try:
+        while True:
+            block_spec = read_block_spec(file, alt_snap_format)
+            yield block_spec
+            skip(file, block_spec.total_size)
+    except SnapshotEOFError:
+        # Iteration has been broken as expected. Just continue
+        # with the code execution.
+        return
+
+
 def load_snapshot(file: BinaryIO_T,
                   blocks: typ.Sequence[BlockID] = None,
                   alt_snap_format: bool = True):

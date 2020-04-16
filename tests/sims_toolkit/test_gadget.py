@@ -4,7 +4,7 @@ import attr
 import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import load_snapshot
-from sims_toolkit.gadget.snapshot import Header
+from sims_toolkit.gadget.snapshot import Header, inspect_struct
 
 load_dotenv()
 
@@ -28,6 +28,16 @@ def snapshot_spec():
     if not os.path.exists(snapshot_path):
         pytest.skip("snapshot file not available")
     return SnapshotSpec(snapshot_path, alt_snap_format)
+
+
+def test_inspect_struct(snapshot_spec):
+    """"""
+    path = snapshot_spec.path
+    alt_snap_format = snapshot_spec.alt_snap_format
+    with open(path, "rb") as g2fp:
+        snap_struct = inspect_struct(g2fp, alt_snap_format)
+        for blocks_spec in snap_struct:
+            print(blocks_spec)
 
 
 def test_load_snapshot(snapshot_spec):
