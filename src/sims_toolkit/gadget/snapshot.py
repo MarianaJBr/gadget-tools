@@ -44,7 +44,7 @@ def skip_block_delim(file: BinaryIO_T, reverse: bool = False):
     file.seek(size, io.SEEK_CUR)
 
 
-def skip_block(file: BinaryIO_T, size: int, reverse: bool = False):
+def skip(file: BinaryIO_T, size: int, reverse: bool = False):
     """Skip a block of ``size`` bytes.
 
     :param file: Snapshot file.
@@ -126,7 +126,7 @@ class Header:
         size = read_size_from_delim(file)
         data = np.fromfile(file, dtype=header_dtype, count=1)[0]
         # Skip the remaining header bytes.
-        skip_block(file, size=size - data.nbytes)
+        skip(file, size=size - data.nbytes)
         skip_block_delim(file)
         return cls.from_data(data)
 
@@ -385,11 +385,11 @@ def load_snapshot(file: BinaryIO_T,
             block_id_str = block_spec.id_str
             if block_id_str not in block_type_members.keys():
                 # Unrecognized block. Do not load any data.
-                skip_block(file, block_spec.total_size)
+                skip(file, block_spec.total_size)
                 continue
             if BlockID[block_id_str] not in blocks_ids:
                 # Block not required. Do not load any data.
-                skip_block(file, block_spec.total_size)
+                skip(file, block_spec.total_size)
                 continue
             block_type: Block = block_type_members[block_id_str].value
             block_fancy_name = BlockID[block_id_str].value
