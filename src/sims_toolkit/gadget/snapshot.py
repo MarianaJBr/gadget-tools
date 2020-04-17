@@ -1,9 +1,10 @@
 import io
+import pathlib
 import sys
 import typing as typ
 from abc import ABCMeta, abstractmethod
 from enum import Enum, unique
-from itertools import starmap
+from itertools import accumulate, starmap
 
 import attr
 import numpy as np
@@ -174,6 +175,33 @@ class Block(metaclass=ABCMeta):
         """Read the block data from file."""
         pass
 
+    @classmethod
+    @abstractmethod
+    def from_data(cls, data: np.ndarray, header: Header):
+        """Creates a Block instance from a ``numpy`` array."""
+        pass
+
+
+def split_block_data(data: np.ndarray, num_par_spec_dict: typ.Dict[str, int]):
+    """Split a block data accordingly to the number of particles
+    spec in a snapshot.
+
+    :param data: Data ``numpy`` array.
+    :param num_par_spec_dict: The number of particles spec .
+    :return: The split data accordingly to the particle type.
+    """
+    par_types_names = num_par_spec_dict.keys()
+    num_par_per_type = list(num_par_spec_dict.values())
+    split_idxs = list(accumulate(num_par_per_type))[:-1]
+    per_type_data: typ.List[np.ndarray] = np.array_split(data, split_idxs)
+    par_types_name_data = zip(par_types_names, per_type_data)
+
+    def adjust_data(par_name: str, par_data: np.ndarray):
+        """"""
+        return par_name, None if not par_data.size else par_data
+
+    return dict(starmap(adjust_data, par_types_name_data))
+
 
 # noinspection DuplicatedCode
 @attr.s(auto_attribs=True)
@@ -193,7 +221,7 @@ class Position(Block):
 
         :param file: Snapshot file.
         :param header: The snapshot header.
-        :return: The positions data as a ``Position`` type instance.
+        :return: The positions data as ``numpy`` array.
         """
         size = read_size_from_delim(file)
         num_part_total = header.num_part.total
@@ -202,6 +230,19 @@ class Position(Block):
         skip_block_delim(file)
         assert size == data.nbytes
         return data.reshape((num_part_total, 3))
+
+    @classmethod
+    def from_data(cls, data: np.ndarray, header: Header):
+        """Read the positions block from file.
+
+        :param data: Data ``numpy`` array.
+        :param header: The snapshot header.
+        :return: The positions data as a ``Position`` type instance.
+        """
+        num_par = header.num_part
+        num_par_spec_dict = attr.asdict(num_par)
+        par_pos_data = split_block_data(data, num_par_spec_dict)
+        return cls(**par_pos_data)
 
 
 # noinspection DuplicatedCode
@@ -222,9 +263,22 @@ class Velocity(Block):
 
         :param file: Snapshot file.
         :param header: The snapshot header.
-        :return: The velocities data as a ``Velocity`` type instance.
+        :return: The velocities data as a ```numpy`` array.
         """
         return Position.data_from_file(file, header)
+
+    @classmethod
+    def from_data(cls, data: np.ndarray, header: Header):
+        """Read the velocities block from file.
+
+        :param data: Data ``numpy`` array.
+        :param header: The snapshot header.
+        :return: The velocities data as a ``Velocity`` type instance.
+        """
+        num_par = header.num_part
+        num_par_spec_dict = attr.asdict(num_par)
+        par_pos_data = split_block_data(data, num_par_spec_dict)
+        return cls(**par_pos_data)
 
 
 @attr.s(auto_attribs=True)
@@ -240,7 +294,7 @@ class IDs(Block):
 
     @staticmethod
     def data_from_file(file: BinaryIO_T, header: Header):
-        """Read the particles identifiers from a snapshot file.
+        """Read the particles ids data from a snapshot file.
 
         :param file: Snapshot file.
         :param header: The snapshot header.
@@ -253,6 +307,19 @@ class IDs(Block):
         assert size == data.nbytes
         return data
 
+    @classmethod
+    def from_data(cls, data: np.ndarray, header: Header):
+        """Read the particles ids block from file.
+
+        :param data: Data ``numpy`` array.
+        :param header: The snapshot header.
+        :return: The particles ids data as a ``IDs`` type instance.
+        """
+        num_par = header.num_part
+        num_par_spec_dict = attr.asdict(num_par)
+        par_pos_data = split_block_data(data, num_par_spec_dict)
+        return cls(**par_pos_data)
+
 
 @attr.s(auto_attribs=True)
 class SnapshotData:
@@ -262,6 +329,16 @@ class SnapshotData:
     velocities: typ.Optional[np.ndarray] = None
     ids: typ.Optional[np.ndarray] = None
     masses: typ.Optional[np.ndarray] = None
+
+
+@attr.s(auto_attribs=True)
+class Snapshot:
+    """"""
+    path: pathlib.Path
+    header: Header
+    positions: typ.Optional[Position] = None
+    velocities: typ.Optional[Velocity] = None
+    ids: typ.Optional[IDs] = None
 
 
 @attr.s(auto_attribs=True)
@@ -374,9 +451,12 @@ def inspect_struct(file: BinaryIO_T,
         return
 
 
+T_BlockSpecIter = typ.Iterator[BlockSpec]
+
+
 def load_blocks_specs(file: BinaryIO_T,
                       blocks: typ.Sequence[BlockID] = None,
-                      alt_snap_format: bool = True):
+                      alt_snap_format: bool = True) -> T_BlockSpecIter:
     """Load the requested blocks specs from a snapshot file.
 
     :param file: A snapshot file object opened in binary mode.
@@ -417,9 +497,9 @@ def load_blocks_specs(file: BinaryIO_T,
     return blocks_specs
 
 
-def load_snapshot(file: BinaryIO_T,
-                  blocks: typ.Sequence[BlockID] = None,
-                  alt_snap_format: bool = True):
+def load_snapshot_data(file: BinaryIO_T,
+                       blocks: typ.Sequence[BlockID] = None,
+                       alt_snap_format: bool = True):
     """Load the data from a snapshot file.
 
     :param file: A snapshot file object opened in binary mode.
@@ -435,7 +515,7 @@ def load_snapshot(file: BinaryIO_T,
     header_spec = next(blocks_specs)
     header_spec.seek_stream_pos(file)
     header = Header.from_file(file)
-    snapshot_data = {
+    snapshot_spec = {
         header_spec.id.py_id: header
     }
     # Read the rest of the blocks.
@@ -444,5 +524,5 @@ def load_snapshot(file: BinaryIO_T,
         block_type = block_spec.id.type
         block_py_id = block_spec.id.py_id
         block_data = block_type.data_from_file(file, header)
-        snapshot_data[block_py_id] = block_data
-    return SnapshotData(**snapshot_data)
+        snapshot_spec[block_py_id] = block_data
+    return SnapshotData(**snapshot_spec)

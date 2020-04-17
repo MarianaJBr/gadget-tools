@@ -3,8 +3,10 @@ import os
 import attr
 import pytest
 from dotenv import load_dotenv
-from sims_toolkit.gadget import load_snapshot
-from sims_toolkit.gadget.snapshot import BlockID, Header, inspect_struct
+from sims_toolkit.gadget import load_snapshot_data
+from sims_toolkit.gadget.snapshot import (
+    BlockID, Header, inspect_struct
+)
 
 load_dotenv()
 
@@ -40,13 +42,13 @@ def test_inspect_struct(snapshot_spec):
             print(blocks_spec)
 
 
-def test_load_snapshot(snapshot_spec):
+def test_load_snapshot_data(snapshot_spec):
     """"""
     path = snapshot_spec.path
     alt_snap_format = snapshot_spec.alt_snap_format
     with open(path, "rb") as g2fp:
-        snapshot_data = load_snapshot(g2fp, blocks=BlockID.common(),
-                                      alt_snap_format=alt_snap_format)
+        snapshot_data = load_snapshot_data(g2fp, blocks=BlockID.common(),
+                                           alt_snap_format=alt_snap_format)
     print(snapshot_data)
 
 
@@ -55,8 +57,8 @@ def test_load_header(snapshot_spec):
     path = snapshot_spec.path
     alt_snap_format = snapshot_spec.alt_snap_format
     with open(path, "rb") as g2fp:
-        snapshot_data = load_snapshot(g2fp, blocks=(),
-                                      alt_snap_format=alt_snap_format)
+        snapshot_data = load_snapshot_data(g2fp, blocks=(),
+                                           alt_snap_format=alt_snap_format)
     snapshot_data_dict = attr.asdict(snapshot_data, recurse=False)
     header = snapshot_data_dict.pop("header")
     assert header is not None
@@ -69,8 +71,8 @@ def test_header_as_data(snapshot_spec):
     path = snapshot_spec.path
     alt_snap_format = snapshot_spec.alt_snap_format
     with open(path, "rb") as g2fp:
-        snapshot_data = load_snapshot(g2fp, blocks=(),
-                                      alt_snap_format=alt_snap_format)
+        snapshot_data = load_snapshot_data(g2fp, blocks=(),
+                                           alt_snap_format=alt_snap_format)
     header = snapshot_data.header
     header_as_data = header.as_data()
     assert header == Header.from_data(header_as_data)
