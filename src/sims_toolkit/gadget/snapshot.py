@@ -77,7 +77,7 @@ header_dtype = np.dtype([
 
 # Size of the header in bytes
 @attr.s(auto_attribs=True)
-class NumPartSpec:
+class NumParSpec:
     gas: int
     halo: int
     disk: int
@@ -91,7 +91,7 @@ class NumPartSpec:
 
 
 @attr.s(auto_attribs=True)
-class MassPartSpec:
+class MassSpec:
     gas: float
     halo: float
     disk: float
@@ -103,13 +103,13 @@ class MassPartSpec:
 @attr.s(auto_attribs=True)
 class Header:
     """Snapshot Header."""
-    num_part: NumPartSpec
-    mass_array: MassPartSpec
+    num_par_spec: NumParSpec
+    mass_spec: MassSpec
     time: float
     redshift: float
     flag_sfr: int
     flag_feedback: int
-    num_part_total: NumPartSpec
+    num_par_total: NumParSpec
     flag_cooling: int
     num_files_snap: int
     box_size: float
@@ -147,16 +147,16 @@ class Header:
         :return: The snapshot header data as a ``Header`` type instance.
         """
         assert data.dtype == header_dtype
-        num_part_spec = NumPartSpec(*data['Npart'])
-        mass_part_spec = MassPartSpec(*data["Massarr"])
-        num_part_total = NumPartSpec(*data["Nall"])
-        header = cls(num_part=num_part_spec,
-                     mass_array=mass_part_spec,
+        num_par_spec = NumParSpec(*data['Npart'])
+        mass_spec = MassSpec(*data["Massarr"])
+        num_par_total = NumParSpec(*data["Nall"])
+        header = cls(num_par_spec=num_par_spec,
+                     mass_spec=mass_spec,
                      time=data["Time"],
                      redshift=data["Redshift"],
                      flag_sfr=data["FlagSfr"],
                      flag_feedback=data["FlagFeedback"],
-                     num_part_total=num_part_total,
+                     num_par_total=num_par_total,
                      flag_cooling=data["FlagCooling"],
                      num_files_snap=data["NumFiles"],
                      box_size=data["BoxSize"],
@@ -205,7 +205,7 @@ def split_block_data(data: np.ndarray, num_par_spec_dict: typ.Dict[str, int]):
 
 # noinspection DuplicatedCode
 @attr.s(auto_attribs=True)
-class Position(Block):
+class Positions(Block):
     """Positions of the particles."""
 
     gas: typ.Optional[np.ndarray] = None
@@ -224,12 +224,12 @@ class Position(Block):
         :return: The positions data as ``numpy`` array.
         """
         size = read_size_from_delim(file)
-        num_part_total = header.num_part.total
-        num_items = num_part_total * 3
+        num_par_total = header.num_par_spec.total
+        num_items = num_par_total * 3
         data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
         skip_block_delim(file)
         assert size == data.nbytes
-        return data.reshape((num_part_total, 3))
+        return data.reshape((num_par_total, 3))
 
     @classmethod
     def from_data(cls, data: np.ndarray, header: Header):
@@ -239,15 +239,15 @@ class Position(Block):
         :param header: The snapshot header.
         :return: The positions data as a ``Position`` type instance.
         """
-        num_par = header.num_part
-        num_par_spec_dict = attr.asdict(num_par)
+        num_par_spec = header.num_par_spec
+        num_par_spec_dict = attr.asdict(num_par_spec)
         par_pos_data = split_block_data(data, num_par_spec_dict)
         return cls(**par_pos_data)
 
 
 # noinspection DuplicatedCode
 @attr.s(auto_attribs=True)
-class Velocity(Block):
+class Velocities(Block):
     """Velocities of the particles."""
 
     gas: typ.Optional[np.ndarray] = None
@@ -265,7 +265,7 @@ class Velocity(Block):
         :param header: The snapshot header.
         :return: The velocities data as a ```numpy`` array.
         """
-        return Position.data_from_file(file, header)
+        return Positions.data_from_file(file, header)
 
     @classmethod
     def from_data(cls, data: np.ndarray, header: Header):
@@ -275,8 +275,8 @@ class Velocity(Block):
         :param header: The snapshot header.
         :return: The velocities data as a ``Velocity`` type instance.
         """
-        num_par = header.num_part
-        num_par_spec_dict = attr.asdict(num_par)
+        num_par_spec = header.num_par_spec
+        num_par_spec_dict = attr.asdict(num_par_spec)
         par_pos_data = split_block_data(data, num_par_spec_dict)
         return cls(**par_pos_data)
 
@@ -301,7 +301,7 @@ class IDs(Block):
         :return: The identifiers as a ``IDs`` type instance.
         """
         size = read_size_from_delim(file)
-        num_items = header.num_part.total
+        num_items = header.num_par_spec.total
         data: np.ndarray = np.fromfile(file, dtype="i4", count=num_items)
         skip_block_delim(file)
         assert size == data.nbytes
@@ -315,8 +315,8 @@ class IDs(Block):
         :param header: The snapshot header.
         :return: The particles ids data as a ``IDs`` type instance.
         """
-        num_par = header.num_part
-        num_par_spec_dict = attr.asdict(num_par)
+        num_par_spec = header.num_par_spec
+        num_par_spec_dict = attr.asdict(num_par_spec)
         par_pos_data = split_block_data(data, num_par_spec_dict)
         return cls(**par_pos_data)
 
@@ -336,8 +336,8 @@ class Snapshot:
     """"""
     path: pathlib.Path
     header: Header
-    positions: typ.Optional[Position] = None
-    velocities: typ.Optional[Velocity] = None
+    positions: typ.Optional[Positions] = None
+    velocities: typ.Optional[Velocities] = None
     ids: typ.Optional[IDs] = None
 
 
@@ -351,13 +351,13 @@ class BlockIDValue:
 class BlockID(Enum):
     """"""
     HEAD = BlockIDValue("header")
-    POS = BlockIDValue("positions", Position)
-    VEL = BlockIDValue("velocities", Velocity)
+    POS = BlockIDValue("positions", Positions)
+    VEL = BlockIDValue("velocities", Velocities)
     ID = BlockIDValue("ids", IDs)
     MASS = BlockIDValue("masses")
     U = BlockIDValue("internal_energy")
     RHO = BlockIDValue("density")
-    HSLM = BlockIDValue("smoothing_length")
+    HSML = BlockIDValue("smoothing_length")
     POT = BlockIDValue("potential")
     ACCE = BlockIDValue("acceleration")
     ENDT = BlockIDValue("entropy_rate_of_change")
