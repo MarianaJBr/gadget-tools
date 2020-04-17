@@ -4,7 +4,7 @@ import attr
 import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import load_snapshot_data
-from sims_toolkit.gadget.snapshot import (
+from sims_toolkit.gadget.snapshot_legacy import (
     BlockID, Header, inspect_struct
 )
 
