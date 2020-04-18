@@ -411,28 +411,36 @@ class File(AbstractContextManager, Mapping):
         block_types = attr.asdict(BlockTypes(), filter=exclude_none)
         block_types = self.block_types or block_types
         object.__setattr__(self, "block_types", block_types)
-        # ************ Define the snapshot Format ************
-        size = read_size_from_delim(file)
-        if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
-            # The first block can only have two possible sizes.
-            raise FormatError("this is not a valid snapshot file")
-        body_bytes = file.read(size)
-        try:
-            # Try to read the block ID from the header block
-            id_str = str(body_bytes[:ID_CHUNK_SIZE].decode("ascii")).rstrip()
-        except UnicodeDecodeError:
-            _format = FileFormat.DEFAULT
+        if not self.size:
+            # Empty, writable files will have FileFormat.ALT.
+            object.__setattr__(self, "_format", FileFormat.ALT)
         else:
-            _format = FileFormat.ALT if id_str == "HEAD" else FileFormat.DEFAULT
-        skip_block_delim(file)
-        if _format is FileFormat.DEFAULT:
-            # Reset stream position to the start.
-            file.seek(SNAP_START_POS, io.SEEK_SET)
-        object.__setattr__(self, "_format", _format)
-        # ************ Initialize the header ************
-        header = Header.from_file(file)
-        file.seek(SNAP_START_POS)
-        object.__setattr__(self, "_header", header)
+            # ************ Define the snapshot Format ************
+            size = read_size_from_delim(file)
+            if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
+                # The first block can only have two possible sizes.
+                raise FormatError("this is not a valid snapshot file")
+            body_bytes = file.read(size)
+            try:
+                # Try to read the block ID from the header block
+                id_str_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
+                id_str = str(id_str_bytes).rstrip()
+            except UnicodeDecodeError:
+                _format = FileFormat.DEFAULT
+            else:
+                if id_str == "HEAD":
+                    _format = FileFormat.ALT
+                else:
+                    _format = FileFormat.DEFAULT
+            skip_block_delim(file)
+            if _format is FileFormat.DEFAULT:
+                # Reset stream position to the start.
+                file.seek(SNAP_START_POS, io.SEEK_SET)
+            object.__setattr__(self, "_format", _format)
+            # ************ Initialize the header ************
+            header = Header.from_file(file)
+            file.seek(SNAP_START_POS)
+            object.__setattr__(self, "_header", header)
         # ************ Load block specs ************
         block_specs: T_BlockSpecs = self._load_block_specs()
         object.__setattr__(self, "_block_specs", block_specs)
@@ -446,6 +454,21 @@ class File(AbstractContextManager, Mapping):
     def format(self):
         """Detect the snapshot format"""
         return self._format
+
+    @property
+    def size(self):
+        """Size of the snapshot in bytes"""
+        file_size = self._goto_end()
+        self._goto_start()
+        return file_size
+
+    def _goto_start(self):
+        """Go to the snapshot starting position."""
+        return self._file.seek(SNAP_START_POS, io.SEEK_SET)
+
+    def _goto_end(self):
+        """Go to the snapshot ending position."""
+        return self._file.seek(SNAP_START_POS, io.SEEK_END)
 
     def _read_size_from_delim(self):
         """Read a delimiter block and return its contents. The returned value
@@ -511,14 +534,14 @@ class File(AbstractContextManager, Mapping):
     def _inspect_struct(self):
         """Inspect the structure of a snapshot."""
         # Read snapshot header spec.
-        self._file.seek(SNAP_START_POS, io.SEEK_SET)
-        header_spec = self._read_block_spec()
-        # Update the ID string.
-        header_spec = attr.evolve(header_spec, id="HEAD")
-        yield header_spec
-        self._skip_block(header_spec)
-        # Read the rest of the blocks.
         try:
+            self._file.seek(SNAP_START_POS, io.SEEK_SET)
+            header_spec = self._read_block_spec()
+            # Update the ID string.
+            header_spec = attr.evolve(header_spec, id="HEAD")
+            yield header_spec
+            self._skip_block(header_spec)
+            # Read the rest of the blocks.
             while True:
                 block_spec = self._read_block_spec()
                 yield block_spec
