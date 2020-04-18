@@ -567,7 +567,7 @@ class File(AbstractContextManager, Mapping):
         return block_type.from_file(self._file, self.header)
 
     def __len__(self) -> int:
-        return len(self._block_specs)
+        return len(self.block_types)
 
     def __iter__(self):
         block_ids = list(self.block_types.keys())

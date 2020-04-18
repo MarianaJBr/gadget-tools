@@ -44,3 +44,13 @@ def test_load_blocks(snapshot):
         print(positions1)
         print(positions2)
         print(velocities)
+
+
+def test_iter(snapshot):
+    """"""
+    with snapshot:
+        for block in snapshot:
+            print("************ Block ************")
+            print(block)
+
+        print("Number of reachable snapshot blocks: {}".format(len(snapshot)))
