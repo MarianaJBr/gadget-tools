@@ -15,8 +15,15 @@ import numpy as np
 SNAP_START_POS = 0
 BLOCK_DELIM_SIZE = 4
 
-# Size of the data chunk where the block id is stored in.
-BLOCK_ID_SIZE = 4
+# Size of the data chunk where the block id is stored in snapshots
+# with SnapFormat=2.
+ID_CHUNK_SIZE = 4
+
+# Size of the identifier block in snapshots with SnapFormat=2.
+ALT_ID_BLOCK_SIZE = 2 * ID_CHUNK_SIZE
+
+# Size in bytes of the header.
+HEADER_SIZE = 256
 
 # Typing helpers.
 T_BinaryIO = t.BinaryIO
@@ -405,10 +412,13 @@ class File(AbstractContextManager, Mapping):
         object.__setattr__(self, "block_types", block_types)
         # ************ Define the snapshot Format ************
         size = read_size_from_delim(file)
+        if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
+            # The first block can only have two possible sizes.
+            raise FormatError("this is not a valid snapshot file")
         body_bytes = file.read(size)
         try:
             # Try to read the block ID from the header block
-            id_str = str(body_bytes[:BLOCK_ID_SIZE].decode("ascii")).rstrip()
+            id_str = str(body_bytes[:ID_CHUNK_SIZE].decode("ascii")).rstrip()
         except UnicodeDecodeError:
             _format = FileFormat.DEFAULT
         else:
@@ -456,11 +466,11 @@ class File(AbstractContextManager, Mapping):
         if self.format is FileFormat.ALT:
             # Read the block ID from the additional block
             body_bytes = self__file.read(size)
-            id_bytes = body_bytes[:BLOCK_ID_SIZE].decode("ascii")
+            id_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
             _id = str(id_bytes).rstrip()
             # Get the total size (including delimiter blocks) of
             # the block's data.
-            total_size_bytes = body_bytes[BLOCK_ID_SIZE:]
+            total_size_bytes = body_bytes[ID_CHUNK_SIZE:]
             total_size = int.from_bytes(total_size_bytes, sys.byteorder)
             skip_block_delim(self__file)
             data_stream_pos = self__file.tell()
@@ -522,11 +532,11 @@ class File(AbstractContextManager, Mapping):
         :param self: A snapshot file object opened in binary mode.
         :return: The snapshot blocks specs.
         """
-        block_specs = list(self._inspect_struct())[1:]
+        block_specs = list(self._inspect_struct())
         block_spec_ids = [block_spec.id for block_spec in block_specs]
         block_type_ids = list(self.block_types.keys())
-        if "HEAD" in block_type_ids:
-            block_type_ids.remove("HEAD")
+        # if "HEAD" in block_type_ids:
+        #     block_type_ids.remove("HEAD")
         if set(block_spec_ids) - set(block_type_ids):
             warning_msg = "there are more snapshot blocks than defined " \
                           "block types; these extra blocks will not be " \
