@@ -400,6 +400,7 @@ class File(AbstractContextManager, Mapping):
                                                      repr=False)
 
     def __attrs_post_init__(self):
+        """Post-initialization stage."""
         if self.readonly:
             file = open(self.name, "rb")
         else:
@@ -438,6 +439,7 @@ class File(AbstractContextManager, Mapping):
 
     @property
     def header(self):
+        """The snapshot header."""
         return self._header
 
     @property
