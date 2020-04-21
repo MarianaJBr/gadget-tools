@@ -388,15 +388,9 @@ class File(AbstractContextManager, Mapping):
     """Represent a GADGET-2 snapshot file."""
 
     name: t.Union[str, bytes, int]
-    # The snapshot structure, i.e., the blocks (in addition to the header) we
-    # expect to find in the file.
     mode: t.Optional[str] = "r"
-    header_type: t.Optional[T_HeaderType] = Header
-    block_types: t.Optional[T_BlockTypes] = None
-    _file: t.Optional[T_BinaryIO] = attr.ib(default=None, init=False,
-                                            repr=False)
-    _format: t.Optional[FileFormat] = attr.ib(default=None, init=False,
-                                              repr=False)
+    _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
+    _format: FileFormat = attr.ib(default=None, init=False, repr=False)
     _header: t.Optional[Header] = attr.ib(default=None, init=False,
                                           repr=False)
     _block_specs: t.Optional[T_BlockSpecs] = attr.ib(default=None, init=False,
@@ -414,10 +408,6 @@ class File(AbstractContextManager, Mapping):
         file: T_BinaryIO = open(self.name, mode)
         object.__setattr__(self, "_file", file)
         # ************ Define the snapshot structure ************
-        exclude_none = attr.filters.exclude(type(None))
-        block_types = attr.asdict(BlockTypes(), filter=exclude_none)
-        block_types = self.block_types or block_types
-        object.__setattr__(self, "block_types", block_types)
         if not self.size:
             # Empty, writable files will have FileFormat.ALT.
             object.__setattr__(self, "_format", FileFormat.ALT)
@@ -453,9 +443,26 @@ class File(AbstractContextManager, Mapping):
         object.__setattr__(self, "_block_specs", block_specs)
 
     @property
+    def header_type(self):
+        """The header type. It is used to read and write header data in
+        this snapshot.
+        """
+        return Header
+
+    @property
     def header(self):
         """The snapshot header."""
         return self._header
+
+    @property
+    def block_types(self):
+        """The block types. They are used to read and write data for the
+        different blocks available in this snapshot.
+        """
+        exclude_none = attr.filters.exclude(type(None))
+        block_types: T_BlockTypes = attr.asdict(BlockTypes(),
+                                                filter=exclude_none)
+        return block_types
 
     @property
     def format(self):
