@@ -28,6 +28,9 @@ HEADER_SIZE = 256
 # Typing helpers.
 T_BinaryIO = t.BinaryIO
 
+# Valid file modes for handling snapshots.
+FILE_MODES = frozenset({"r", "w", "x", "a"})
+
 
 @unique
 class FileFormat(Enum):
@@ -388,8 +391,8 @@ class File(AbstractContextManager, Mapping):
     name: t.Union[str, bytes, int]
     # The snapshot structure, i.e., the blocks (in addition to the header) we
     # expect to find in the file.
+    mode: t.Optional[str] = "r"
     block_types: t.Optional[T_BlockTypes] = None
-    readonly: t.Optional[bool] = True
     _file: t.Optional[T_BinaryIO] = attr.ib(default=None, init=False,
                                             repr=False)
     _format: t.Optional[FileFormat] = attr.ib(default=None, init=False,
@@ -401,10 +404,14 @@ class File(AbstractContextManager, Mapping):
 
     def __attrs_post_init__(self):
         """Post-initialization stage."""
-        if self.readonly:
-            file = open(self.name, "rb")
-        else:
-            file = open(self.name, "wb")
+        mode = self.mode
+        if mode not in FILE_MODES:
+            raise ValueError(f"invalid mode; mode must be one of "
+                             f"{FILE_MODES}")
+        # Force the file to be open in binary mode.
+        mode += "b"
+        # noinspection PyTypeChecker
+        file: T_BinaryIO = open(self.name, mode)
         object.__setattr__(self, "_file", file)
         # ************ Define the snapshot structure ************
         exclude_none = attr.filters.exclude(type(None))

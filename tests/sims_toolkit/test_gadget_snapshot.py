@@ -27,6 +27,15 @@ def test_read(snapshot_path):
         print(snapshot)
 
 
+def test_read_invalid_mode(snapshot_path):
+    """"""
+    with pytest.raises(ValueError):
+        # Although snapshots are open as binary, the mode does not accept
+        # the ``b`` modifier.
+        with File(snapshot_path, "rb") as snapshot:
+            print(snapshot)
+
+
 def test_inspect(snapshot_path):
     """"""
     with File(snapshot_path) as snapshot:
