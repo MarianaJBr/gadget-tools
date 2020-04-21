@@ -1,7 +1,6 @@
 import io
 import sys
 import typing as t
-import warnings
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
@@ -564,30 +563,24 @@ class File(AbstractContextManager, Mapping):
         :param self: A snapshot file object opened in binary mode.
         :return: The snapshot blocks specs.
         """
-        block_specs = list(self._inspect_struct())
-        block_spec_ids = [block_spec.id for block_spec in block_specs]
-        block_type_ids = list(self.block_types.keys())
-        # if "HEAD" in block_type_ids:
-        #     block_type_ids.remove("HEAD")
-        if set(block_spec_ids) - set(block_type_ids):
-            warning_msg = "there are more snapshot blocks than defined " \
-                          "block types; these extra blocks will not be " \
-                          "accessible."
-            warnings.warn(warning_msg, RuntimeWarning)
+        spec_list = list(self._inspect_struct())
+        spec_ids = [spec.id for spec in spec_list]
+        type_ids = list(self.block_types.keys())
+        spec_map: t.Dict[str, BlockSpec] = {spec.id: spec for spec in spec_list}
+        if len(spec_ids) < len(type_ids):
+            error_msg = "the number of defined block types is higher than " \
+                        "the number of stored block specs in this snapshot."
+            raise FormatError(error_msg)
 
-        def patch_spec(block_spec: BlockSpec, block_id: str):
+        def patch_spec(spec: BlockSpec, type_id: str):
             """Set the ID string of a BlockSpec manually."""
-            return attr.evolve(block_spec, id=block_id)
+            return attr.evolve(spec, id=type_id)
 
         if self.format is FileFormat.DEFAULT:
-            if len(block_spec_ids) != len(block_type_ids):
-                error_msg = "the number of snapshot blocks and defined block " \
-                            "types is different"
-                raise FormatError(error_msg)
-            blocks_specs_ids = zip(block_specs, block_type_ids)
-            block_specs = starmap(patch_spec, blocks_specs_ids)
-
-        return {block_spec.id: block_spec for block_spec in block_specs}
+            specs_and_type_ids = zip(spec_list, type_ids)
+            spec_list = starmap(patch_spec, specs_and_type_ids)
+            spec_map = dict(zip(type_ids, spec_list))
+        return {type_id: spec_map.get(type_id, None) for type_id in type_ids}
 
     def _goto_block(self, block_spec: BlockSpec):
         """Jump directly to the block data location in the snapshot.
