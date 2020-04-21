@@ -597,7 +597,9 @@ class File(AbstractContextManager, Mapping):
         block_type = self.block_types[block_id]
         block_spec = self._block_specs[block_id]
         if block_type is None:
-            return None
+            raise TypeError("block type is not defined")
+        if block_spec is None:
+            raise FormatError("block not found in snapshot")
         self._goto_block(block_spec)
         return block_type.from_file(self._file, self.header)
 
