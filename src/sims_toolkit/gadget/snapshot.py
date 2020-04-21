@@ -363,7 +363,6 @@ class BlockTypes:
     the blocks in a GADGET snapshot, according to the standard snapshot
     specification (see GADGET-2 manual, p.32).
     """
-    HEAD: t.Type[Header] = Header
     POS: t.Type[Block] = Positions
     VEL: t.Type[Block] = Velocities
     ID: t.Type[Block] = IDs
@@ -378,6 +377,7 @@ class BlockTypes:
 
 
 # Typing helpers.
+T_HeaderType = t.Type[Header]
 T_BlockTypes = t.Dict[str, t.Type[Block]]
 T_BlockTypesList = t.List[t.Tuple[str, t.Type[Block]]]
 T_BlockSpecs = t.Dict[str, BlockSpec]
@@ -391,6 +391,7 @@ class File(AbstractContextManager, Mapping):
     # The snapshot structure, i.e., the blocks (in addition to the header) we
     # expect to find in the file.
     mode: t.Optional[str] = "r"
+    header_type: t.Optional[T_HeaderType] = Header
     block_types: t.Optional[T_BlockTypes] = None
     _file: t.Optional[T_BinaryIO] = attr.ib(default=None, init=False,
                                             repr=False)
@@ -444,7 +445,7 @@ class File(AbstractContextManager, Mapping):
                 file.seek(SNAP_START_POS, io.SEEK_SET)
             object.__setattr__(self, "_format", _format)
             # ************ Initialize the header ************
-            header = Header.from_file(file)
+            header = self.header_type.from_file(file)
             file.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
         # ************ Load block specs ************
@@ -563,7 +564,8 @@ class File(AbstractContextManager, Mapping):
         :param self: A snapshot file object opened in binary mode.
         :return: The snapshot blocks specs.
         """
-        spec_list = list(self._inspect_struct())
+        # Exclude the header spec.
+        spec_list = list(self._inspect_struct())[1:]
         spec_ids = [spec.id for spec in spec_list]
         type_ids = list(self.block_types.keys())
         spec_map: t.Dict[str, BlockSpec] = {spec.id: spec for spec in spec_list}
@@ -607,6 +609,7 @@ class File(AbstractContextManager, Mapping):
         return len(self.block_types)
 
     def __iter__(self):
+        yield self.header
         block_ids = list(self.block_types.keys())
         for block_id in block_ids:
             yield self[block_id]
