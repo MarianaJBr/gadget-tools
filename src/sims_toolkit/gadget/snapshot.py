@@ -38,6 +38,12 @@ class FileFormat(Enum):
     ALT = 2
 
 
+class FormatWarning(RuntimeWarning):
+    """A snapshot with ``FileFormat.DEFAULT`` has not a fully defined
+    struct."""
+    pass
+
+
 class SnapshotEOFError(EOFError):
     """Read beyond end of GADGET-2 snapshot file."""
     pass
@@ -380,7 +386,7 @@ class BlockTypes:
 T_HeaderType = t.Type[Header]
 T_BlockTypes = t.Dict[str, t.Type[Block]]
 T_BlockTypesList = t.List[t.Tuple[str, t.Type[Block]]]
-T_BlockSpecs = t.Dict[str, BlockSpec]
+T_Struct = t.Dict[str, BlockSpec]
 
 
 @attr.s(auto_attribs=True, frozen=True)
@@ -391,10 +397,8 @@ class File(AbstractContextManager, Mapping):
     mode: t.Optional[str] = "r"
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _format: FileFormat = attr.ib(default=None, init=False, repr=False)
-    _header: t.Optional[Header] = attr.ib(default=None, init=False,
-                                          repr=False)
-    _block_specs: t.Optional[T_BlockSpecs] = attr.ib(default=None, init=False,
-                                                     repr=False)
+    _header: Header = attr.ib(default=None, init=False, repr=False)
+    _struct: T_Struct = attr.ib(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self):
         """Post-initialization stage."""
@@ -439,8 +443,8 @@ class File(AbstractContextManager, Mapping):
             file.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
         # ************ Load block specs ************
-        block_specs: T_BlockSpecs = self._load_block_specs()
-        object.__setattr__(self, "_block_specs", block_specs)
+        struct: T_Struct = self._define_struct()
+        object.__setattr__(self, "_struct", struct)
 
     @property
     def header_type(self):
@@ -565,21 +569,15 @@ class File(AbstractContextManager, Mapping):
             # with the code execution.
             return
 
-    def _load_block_specs(self):
-        """Load the requested blocks specs from a snapshot file.
+    def _define_struct(self) -> T_Struct:
+        """Define the structure of this snapshot file.
 
         :param self: A snapshot file object opened in binary mode.
         :return: The snapshot blocks specs.
         """
         # Exclude the header spec.
         spec_list = list(self._inspect_struct())[1:]
-        spec_ids = [spec.id for spec in spec_list]
         type_ids = list(self.block_types.keys())
-        spec_map: t.Dict[str, BlockSpec] = {spec.id: spec for spec in spec_list}
-        if len(spec_ids) < len(type_ids):
-            error_msg = "the number of defined block types is higher than " \
-                        "the number of stored block specs in this snapshot."
-            raise FormatError(error_msg)
 
         def patch_spec(spec: BlockSpec, type_id: str):
             """Set the ID string of a BlockSpec manually."""
@@ -588,7 +586,9 @@ class File(AbstractContextManager, Mapping):
         if self.format is FileFormat.DEFAULT:
             specs_and_type_ids = zip(spec_list, type_ids)
             spec_list = starmap(patch_spec, specs_and_type_ids)
-            spec_map = dict(zip(type_ids, spec_list))
+            spec_map: T_Struct = dict(zip(type_ids, spec_list))
+        else:
+            spec_map = {spec.id: spec for spec in spec_list}
         return {type_id: spec_map.get(type_id, None) for type_id in type_ids}
 
     def _goto_block(self, block_spec: BlockSpec):
@@ -604,7 +604,7 @@ class File(AbstractContextManager, Mapping):
         if block_id == "HEAD":
             return self.header
         block_type = self.block_types[block_id]
-        block_spec = self._block_specs[block_id]
+        block_spec = self._struct[block_id]
         if block_type is None:
             raise TypeError("block type is not defined")
         if block_spec is None:
