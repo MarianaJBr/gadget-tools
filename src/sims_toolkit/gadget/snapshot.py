@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 import typing as t
 from abc import ABCMeta, abstractmethod
@@ -393,7 +394,7 @@ T_Struct = t.Dict[str, BlockSpec]
 class File(AbstractContextManager, Mapping):
     """Represent a GADGET-2 snapshot file."""
 
-    name: t.Union[str, bytes, int]
+    name: os.PathLike
     mode: t.Optional[str] = "r"
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _format: FileFormat = attr.ib(default=None, init=False, repr=False)
