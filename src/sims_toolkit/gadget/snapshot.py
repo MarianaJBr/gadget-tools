@@ -416,36 +416,18 @@ class File(AbstractContextManager, Mapping):
         if not self.size:
             # Empty, writable files will have FileFormat.ALT.
             object.__setattr__(self, "_format", FileFormat.ALT)
+            object.__setattr__(self, "_struct", {})
         else:
             # ************ Define the snapshot Format ************
-            size = read_size_from_delim(file)
-            if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
-                # The first block can only have two possible sizes.
-                raise FormatError("this is not a valid snapshot file")
-            body_bytes = file.read(size)
-            try:
-                # Try to read the block ID from the header block
-                id_str_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
-                id_str = str(id_str_bytes).rstrip()
-            except UnicodeDecodeError:
-                _format = FileFormat.DEFAULT
-            else:
-                if id_str == "HEAD":
-                    _format = FileFormat.ALT
-                else:
-                    _format = FileFormat.DEFAULT
-            skip_block_delim(file)
-            if _format is FileFormat.DEFAULT:
-                # Reset stream position to the start.
-                file.seek(SNAP_START_POS, io.SEEK_SET)
+            _format = self._detect_format()
             object.__setattr__(self, "_format", _format)
             # ************ Initialize the header ************
             header = self.header_type.from_file(file)
             file.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
-        # ************ Load block specs ************
-        struct: T_Struct = self._define_struct()
-        object.__setattr__(self, "_struct", struct)
+            # ************ Load block specs ************
+            struct: T_Struct = self._define_struct()
+            object.__setattr__(self, "_struct", struct)
 
     @property
     def header_type(self):
@@ -480,6 +462,34 @@ class File(AbstractContextManager, Mapping):
         file_size = self._goto_end()
         self._goto_start()
         return file_size
+
+    def _detect_format(self):
+        """Detect the snapshot file format.
+
+        :return: The snapshot format.
+        """
+        self__file = self._file
+        size = read_size_from_delim(self__file)
+        if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
+            # The first block can only have two possible sizes.
+            raise FormatError("this is not a valid snapshot file")
+        body_bytes = self__file.read(size)
+        try:
+            # Try to read the block ID from the header block
+            id_str_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
+            id_str = str(id_str_bytes).rstrip()
+        except UnicodeDecodeError:
+            _format = FileFormat.DEFAULT
+        else:
+            if id_str == "HEAD":
+                _format = FileFormat.ALT
+            else:
+                _format = FileFormat.DEFAULT
+        skip_block_delim(self__file)
+        if _format is FileFormat.DEFAULT:
+            # Reset stream position to the start.
+            self__file.seek(SNAP_START_POS, io.SEEK_SET)
+        return _format
 
     def _goto_start(self):
         """Go to the snapshot starting position."""
