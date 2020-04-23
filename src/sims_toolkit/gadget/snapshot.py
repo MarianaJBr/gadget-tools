@@ -26,6 +26,9 @@ HEADER_SIZE = 256
 
 # Typing helpers.
 T_BinaryIO = t.BinaryIO
+T_DataLoader = t.Callable[[T_BinaryIO, "Header"], t.Dict[str, np.ndarray]]
+T_DataLoaders = t.Dict[str, T_DataLoader]
+T_Struct = t.Dict[str, "BlockSpec"]
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
@@ -152,6 +155,11 @@ class Header:
     omega_lambda: float
     hubble_param: float
 
+    @property
+    def size(self):
+        """"""
+        return header_dtype.itemsize
+
     @classmethod
     def from_file(cls, file: T_BinaryIO):
         """Read the snapshot file header.
@@ -159,11 +167,7 @@ class Header:
         :param file: Snapshot file.
         :return: The snapshot header data as a ``Header`` type instance.
         """
-        size = read_size_from_delim(file)
         data = np.fromfile(file, dtype=header_dtype, count=1)[0]
-        # Skip the remaining header bytes.
-        skip(file, size=size - data.nbytes)
-        skip_block_delim(file)
         return cls.from_data(data)
 
     def as_data(self):
@@ -219,6 +223,13 @@ class BlockData:
     stars: t.Optional[np.ndarray] = None
     bndry: t.Optional[np.ndarray] = None
 
+    @property
+    def size(self):
+        """The size in bytes of the header data."""
+        self_attrs = attr.astuple(self, filter=EXCLUDE_NONE_FILTER)
+        attrs_sizes = [self_attr.nbytes for self_attr in self_attrs]
+        return sum(attrs_sizes)
+
 
 @attr.s(auto_attribs=True, frozen=True)
 class Block:
@@ -246,12 +257,6 @@ def split_block_data(data: np.ndarray, num_par_spec_dict: t.Dict[str, int]):
         return par_name, None if not par_data.size else par_data
 
     return dict(starmap(adjust_data, par_types_name_data))
-
-
-# Typing helpers.
-T_DataLoader = t.Callable[[T_BinaryIO, Header], t.Dict[str, np.ndarray]]
-T_DataLoaders = t.Dict[str, T_DataLoader]
-T_Struct = t.Dict[str, BlockSpec]
 
 
 @attr.s(auto_attribs=True)
@@ -308,7 +313,11 @@ class File(AbstractContextManager, Mapping):
             _format = self._detect_format()
             object.__setattr__(self, "_format", _format)
             # ************ Initialize the header ************
+            block_size = self._read_size_from_delim()
             header = Header.from_file(file)
+            # Skip the remaining header bytes.
+            self._skip(size=block_size - header.size)
+            self._skip_block_delim()
             file.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
             # ************ Define the block data loaders **************
@@ -347,7 +356,7 @@ class File(AbstractContextManager, Mapping):
         :return: The snapshot format.
         """
         self__file = self._file
-        size = read_size_from_delim(self__file)
+        size = self._read_size_from_delim()
         if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
             # The first block can only have two possible sizes.
             raise FormatError("this is not a valid snapshot file")
@@ -404,7 +413,7 @@ class File(AbstractContextManager, Mapping):
             # the block's data.
             total_size_bytes = body_bytes[ID_CHUNK_SIZE:]
             total_size = int.from_bytes(total_size_bytes, sys.byteorder)
-            skip_block_delim(self__file)
+            self._skip_block_delim()
             data_stream_pos = self__file.tell()
         else:
             # This is the data block. There is no additional block to read
@@ -412,7 +421,7 @@ class File(AbstractContextManager, Mapping):
             _id = None
             total_size = size + 2 * BLOCK_DELIM_SIZE
             # Return to the start of the data block.
-            skip_block_delim(self__file, reverse=True)
+            self._skip_block_delim(reverse=True)
             data_stream_pos = self__file.tell()
         return BlockSpec(total_size, data_stream_pos, _id)
 
@@ -422,6 +431,15 @@ class File(AbstractContextManager, Mapping):
         :param reverse: Skip the block backwards.
         """
         size = -BLOCK_DELIM_SIZE if reverse else BLOCK_DELIM_SIZE
+        self._file.seek(size, io.SEEK_CUR)
+
+    def _skip(self, size: int, reverse: bool = False):
+        """Skip a block of ``size`` bytes.
+
+        :param size: Size of block in bytes.
+        :param reverse: Skip the block backwards.
+        """
+        size = -size if reverse else size
         self._file.seek(size, io.SEEK_CUR)
 
     def _skip_block(self, block_spec: BlockSpec):
@@ -498,12 +516,9 @@ class File(AbstractContextManager, Mapping):
         :return: The positions data as ``numpy`` array.
         """
         num_par_spec = header.num_par_spec
-        size = read_size_from_delim(file)
         num_par_total = num_par_spec.total
         num_items = num_par_total * 3
         data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
-        skip_block_delim(file)
-        assert size == data.nbytes
         positions = data.reshape((num_par_total, 3))
         num_par_spec_dict = attr.asdict(num_par_spec)
         return split_block_data(positions, num_par_spec_dict)
@@ -525,12 +540,9 @@ class File(AbstractContextManager, Mapping):
         :param header: The snapshot header.
         :return: The identifiers as a ``IDs`` type instance.
         """
-        size = read_size_from_delim(file)
         num_par_spec = header.num_par_spec
         num_items = num_par_spec.total
         data: np.ndarray = np.fromfile(file, dtype="i4", count=num_items)
-        skip_block_delim(file)
-        assert size == data.nbytes
         num_par_spec_dict = attr.asdict(num_par_spec)
         return split_block_data(data, num_par_spec_dict)
 
@@ -545,8 +557,11 @@ class File(AbstractContextManager, Mapping):
         if block_spec is None:
             raise FormatError("block not found in snapshot")
         self._goto_block(block_spec)
+        block_size = self._read_size_from_delim()
         block_data_dict = data_loader(self._file, self.header)
         block_data = BlockData(**block_data_dict)
+        self._skip_block_delim()
+        assert block_size == block_data.size
         return Block(block_id, block_data)
 
     def __len__(self) -> int:
