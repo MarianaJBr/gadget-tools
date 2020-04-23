@@ -2,7 +2,6 @@ import io
 import os
 import sys
 import typing as t
-from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from enum import Enum, unique
@@ -30,6 +29,9 @@ T_BinaryIO = t.BinaryIO
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
+
+# Some useful attrs filters.
+EXCLUDE_NONE_FILTER = attr.filters.exclude(type(None))
 
 
 @unique
@@ -207,19 +209,22 @@ class BlockSpec:
     id: str = None
 
 
-class Block(metaclass=ABCMeta):
-    """Snapshot data block."""
+@attr.s(auto_attribs=True, frozen=True)
+class BlockData:
+    """The block data, organized by particle type."""
+    gas: t.Optional[np.ndarray] = None
+    halo: t.Optional[np.ndarray] = None
+    disk: t.Optional[np.ndarray] = None
+    bulge: t.Optional[np.ndarray] = None
+    stars: t.Optional[np.ndarray] = None
+    bndry: t.Optional[np.ndarray] = None
 
-    @staticmethod
-    @abstractmethod
-    def load_data(file: T_BinaryIO, header: Header):
-        """Load block data from a binary file."""
 
-    @classmethod
-    @abstractmethod
-    def from_file(cls, file: T_BinaryIO, header: Header):
-        """Creates a Block instance from a binary file data."""
-        pass
+@attr.s(auto_attribs=True, frozen=True)
+class Block:
+    """A snapshot data block."""
+    id: str
+    data: BlockData
 
 
 def split_block_data(data: np.ndarray, num_par_spec_dict: t.Dict[str, int]):
@@ -243,151 +248,31 @@ def split_block_data(data: np.ndarray, num_par_spec_dict: t.Dict[str, int]):
     return dict(starmap(adjust_data, par_types_name_data))
 
 
-@attr.s(auto_attribs=True)
-class Positions(Block):
-    """Positions of the particles."""
-
-    gas: t.Optional[np.ndarray] = None
-    halo: t.Optional[np.ndarray] = None
-    disk: t.Optional[np.ndarray] = None
-    bulge: t.Optional[np.ndarray] = None
-    stars: t.Optional[np.ndarray] = None
-    bndry: t.Optional[np.ndarray] = None
-
-    @staticmethod
-    def load_data(file: T_BinaryIO, header: Header):
-        """Load positions data from a binary file.
-
-        :param file: Snapshot file.
-        :param header: The snapshot header.
-        :return: The positions data as ``numpy`` array.
-        """
-        size = read_size_from_delim(file)
-        num_par_total = header.num_par_spec.total
-        num_items = num_par_total * 3
-        data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
-        skip_block_delim(file)
-        assert size == data.nbytes
-        return data.reshape((num_par_total, 3))
-
-    @classmethod
-    def from_file(cls, file: T_BinaryIO, header: Header):
-        """Read the positions block from file.
-
-        :param file: Snapshot file.
-        :param header: The snapshot header.
-        :return: The positions data as a ``Position`` type instance.
-        """
-        data = cls.load_data(file, header)
-        num_par_spec = header.num_par_spec
-        num_par_spec_dict = attr.asdict(num_par_spec)
-        par_pos_data = split_block_data(data, num_par_spec_dict)
-        return cls(**par_pos_data)
+# Typing helpers.
+T_DataLoader = t.Callable[[T_BinaryIO, Header], t.Dict[str, np.ndarray]]
+T_DataLoaders = t.Dict[str, T_DataLoader]
+T_Struct = t.Dict[str, BlockSpec]
 
 
 @attr.s(auto_attribs=True)
-class Velocities(Block):
-    """Velocities of the particles."""
+class DataLoaders:
+    """Procedures used to load data from the snapshot blocks.
 
-    gas: t.Optional[np.ndarray] = None
-    halo: t.Optional[np.ndarray] = None
-    disk: t.Optional[np.ndarray] = None
-    bulge: t.Optional[np.ndarray] = None
-    stars: t.Optional[np.ndarray] = None
-    bndry: t.Optional[np.ndarray] = None
-
-    @staticmethod
-    def load_data(file: T_BinaryIO, header: Header):
-        """Load velocities data from a binary file.
-
-        :param file: Snapshot file.
-        :param header: The snapshot header.
-        :return: The velocities data as a ```numpy`` array.
-        """
-        return Positions.load_data(file, header)
-
-    @classmethod
-    def from_file(cls, file: T_BinaryIO, header: Header):
-        """Read the velocities block from file.
-
-        :param file: Data ``numpy`` array.
-        :param header: The snapshot header.
-        :return: The velocities data as a ``Velocity`` type instance.
-        """
-        data = cls.load_data(file, header)
-        num_par_spec = header.num_par_spec
-        num_par_spec_dict = attr.asdict(num_par_spec)
-        par_pos_data = split_block_data(data, num_par_spec_dict)
-        return cls(**par_pos_data)
-
-
-@attr.s(auto_attribs=True)
-class IDs(Block):
-    """Particles identifiers."""
-
-    gas: t.Optional[np.ndarray] = None
-    halo: t.Optional[np.ndarray] = None
-    disk: t.Optional[np.ndarray] = None
-    bulge: t.Optional[np.ndarray] = None
-    stars: t.Optional[np.ndarray] = None
-    bndry: t.Optional[np.ndarray] = None
-
-    @staticmethod
-    def load_data(file: T_BinaryIO, header: Header):
-        """Load identifiers data from a binary file.
-
-        :param file: Snapshot file.
-        :param header: The snapshot header.
-        :return: The identifiers as a ``IDs`` type instance.
-        """
-        size = read_size_from_delim(file)
-        num_items = header.num_par_spec.total
-        data: np.ndarray = np.fromfile(file, dtype="i4", count=num_items)
-        skip_block_delim(file)
-        assert size == data.nbytes
-        return data
-
-    @classmethod
-    def from_file(cls, file: T_BinaryIO, header: Header):
-        """Read the particles ids block from file.
-
-        :param file: Data ``numpy`` array.
-        :param header: The snapshot header.
-        :return: The particles ids data as a ``IDs`` type instance.
-        """
-        data = cls.load_data(file, header)
-        num_par_spec = header.num_par_spec
-        num_par_spec_dict = attr.asdict(num_par_spec)
-        par_pos_data = split_block_data(data, num_par_spec_dict)
-        return cls(**par_pos_data)
-
-
-@attr.s(auto_attribs=True)
-class BlockTypes:
-    """The block types associated with a snapshot files.
-
-    This class defines the python type/class used to load data from
+    This class defines the python callable objects used to load data from
     the blocks in a GADGET snapshot, according to the standard snapshot
     specification (see GADGET-2 manual, p.32).
     """
-    POS: t.Type[Block] = Positions
-    VEL: t.Type[Block] = Velocities
-    ID: t.Type[Block] = IDs
-    MASS: t.Type[Block] = None
-    U: t.Type[Block] = None
-    RHO: t.Type[Block] = None
-    HSML: t.Type[Block] = None
-    POT: t.Type[Block] = None
-    ACCE: t.Type[Block] = None
-    ENDT: t.Type[Block] = None
-    TSTP: t.Type[Block] = None
-
-
-# Typing helpers.
-T_HeaderType = t.Type[Header]
-T_BlockTypes = t.Dict[str, t.Type[Block]]
-T_BlockTypesList = t.List[t.Tuple[str, t.Type[Block]]]
-T_Struct = t.Dict[str, BlockSpec]
+    POS: t.Type[T_DataLoader] = None
+    VEL: t.Type[T_DataLoader] = None
+    ID: t.Type[T_DataLoader] = None
+    MASS: t.Type[T_DataLoader] = None
+    U: t.Type[T_DataLoader] = None
+    RHO: t.Type[T_DataLoader] = None
+    HSML: t.Type[T_DataLoader] = None
+    POT: t.Type[T_DataLoader] = None
+    ACCE: t.Type[T_DataLoader] = None
+    ENDT: t.Type[T_DataLoader] = None
+    TSTP: t.Type[T_DataLoader] = None
 
 
 @attr.s(auto_attribs=True, frozen=True)
@@ -396,6 +281,7 @@ class File(AbstractContextManager, Mapping):
 
     name: os.PathLike
     mode: t.Optional[str] = "r"
+    data_loaders: T_DataLoaders = attr.ib(default=None)
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _format: FileFormat = attr.ib(default=None, init=False, repr=False)
     _header: Header = attr.ib(default=None, init=False, repr=False)
@@ -422,34 +308,26 @@ class File(AbstractContextManager, Mapping):
             _format = self._detect_format()
             object.__setattr__(self, "_format", _format)
             # ************ Initialize the header ************
-            header = self.header_type.from_file(file)
+            header = Header.from_file(file)
             file.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
+            # ************ Define the block data loaders **************
+            if self.data_loaders is None:
+                # These are the default block data loaders
+                data_loaders = DataLoaders(POS=self._load_positions,
+                                           VEL=self._load_velocities,
+                                           ID=self._load_ids)
+                data_loaders_dict: T_DataLoaders \
+                    = attr.asdict(data_loaders, filter=EXCLUDE_NONE_FILTER)
+                object.__setattr__(self, "data_loaders", data_loaders_dict)
             # ************ Load block specs ************
             struct: T_Struct = self._define_struct()
             object.__setattr__(self, "_struct", struct)
 
     @property
-    def header_type(self):
-        """The header type. It is used to read and write header data in
-        this snapshot.
-        """
-        return Header
-
-    @property
     def header(self):
         """The snapshot header."""
         return self._header
-
-    @property
-    def block_types(self):
-        """The block types. They are used to read and write data for the
-        different blocks available in this snapshot.
-        """
-        exclude_none = attr.filters.exclude(type(None))
-        block_types: T_BlockTypes = attr.asdict(BlockTypes(),
-                                                filter=exclude_none)
-        return block_types
 
     @property
     def format(self):
@@ -588,19 +466,20 @@ class File(AbstractContextManager, Mapping):
         """
         # Exclude the header spec.
         spec_list = list(self._inspect_struct())[1:]
-        type_ids = list(self.block_types.keys())
+        loader_ids = list(self.data_loaders.keys())
 
         def patch_spec(spec: BlockSpec, type_id: str):
             """Set the ID string of a BlockSpec manually."""
             return attr.evolve(spec, id=type_id)
 
         if self.format is FileFormat.DEFAULT:
-            specs_and_type_ids = zip(spec_list, type_ids)
-            spec_list = starmap(patch_spec, specs_and_type_ids)
-            spec_map: T_Struct = dict(zip(type_ids, spec_list))
+            specs_and_loader_ids = zip(spec_list, loader_ids)
+            spec_list = starmap(patch_spec, specs_and_loader_ids)
+            spec_map: T_Struct = dict(zip(loader_ids, spec_list))
         else:
             spec_map = {spec.id: spec for spec in spec_list}
-        return {type_id: spec_map.get(type_id, None) for type_id in type_ids}
+        return {loader_id: spec_map.get(loader_id, None) for loader_id in
+                loader_ids}
 
     def _goto_block(self, block_spec: BlockSpec):
         """Jump directly to the block data location in the snapshot.
@@ -610,25 +489,72 @@ class File(AbstractContextManager, Mapping):
         data_stream_pos = block_spec.data_stream_pos
         self._file.seek(data_stream_pos, io.SEEK_SET)
 
+    @staticmethod
+    def _load_positions(file: T_BinaryIO, header: Header):
+        """Load positions data from a binary file.
+
+        :param file: Snapshot file.
+        :param header: The snapshot header.
+        :return: The positions data as ``numpy`` array.
+        """
+        num_par_spec = header.num_par_spec
+        size = read_size_from_delim(file)
+        num_par_total = num_par_spec.total
+        num_items = num_par_total * 3
+        data: np.ndarray = np.fromfile(file, dtype="f4", count=num_items)
+        skip_block_delim(file)
+        assert size == data.nbytes
+        positions = data.reshape((num_par_total, 3))
+        num_par_spec_dict = attr.asdict(num_par_spec)
+        return split_block_data(positions, num_par_spec_dict)
+
+    def _load_velocities(self, file: T_BinaryIO, header: Header):
+        """Load velocities data from a binary file.
+
+        :param file: Snapshot file.
+        :param header: The snapshot header.
+        :return: The velocities data as a ```numpy`` array.
+        """
+        return self._load_positions(file, header)
+
+    @staticmethod
+    def _load_ids(file: T_BinaryIO, header: Header):
+        """Load identifiers data from a binary file.
+
+        :param file: Snapshot file.
+        :param header: The snapshot header.
+        :return: The identifiers as a ``IDs`` type instance.
+        """
+        size = read_size_from_delim(file)
+        num_par_spec = header.num_par_spec
+        num_items = num_par_spec.total
+        data: np.ndarray = np.fromfile(file, dtype="i4", count=num_items)
+        skip_block_delim(file)
+        assert size == data.nbytes
+        num_par_spec_dict = attr.asdict(num_par_spec)
+        return split_block_data(data, num_par_spec_dict)
+
     def __getitem__(self, block_id: str):
         """Return item"""
         if block_id == "HEAD":
             return self.header
-        block_type = self.block_types[block_id]
+        data_loader = self.data_loaders[block_id]
         block_spec = self._struct[block_id]
-        if block_type is None:
+        if data_loader is None:
             raise TypeError("block type is not defined")
         if block_spec is None:
             raise FormatError("block not found in snapshot")
         self._goto_block(block_spec)
-        return block_type.from_file(self._file, self.header)
+        block_data_dict = data_loader(self._file, self.header)
+        block_data = BlockData(**block_data_dict)
+        return Block(block_id, block_data)
 
     def __len__(self) -> int:
-        return len(self.block_types)
+        return len(self.data_loaders)
 
     def __iter__(self):
         yield self.header
-        block_ids = list(self.block_types.keys())
+        block_ids = list(self.data_loaders.keys())
         for block_id in block_ids:
             yield self[block_id]
 
