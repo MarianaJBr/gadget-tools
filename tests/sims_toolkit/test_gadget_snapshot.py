@@ -3,6 +3,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import File
+from sims_toolkit.gadget.snapshot import FileFormat
 
 load_dotenv()
 
@@ -58,8 +59,29 @@ def test_load_blocks(snapshot_path):
 def test_iter(snapshot_path):
     """"""
     with File(snapshot_path) as snapshot:
-        for block in snapshot:
+        for block in snapshot.values():
             print("************ Block ************")
             print(block)
-
         print("Number of reachable snapshot blocks: {}".format(len(snapshot)))
+
+
+def test_copy_snapshot(snapshot_path):
+    """"""
+    with File(snapshot_path) as snap:
+        new_snap_path = snapshot_path + "-test-snap"
+        with File(new_snap_path, "w") as new_snap:
+            # First assign the header.
+            new_snap.header = snap.header
+            # Block assignment order matters.
+            new_snap["POS"] = snap["POS"]
+            new_snap["VEL"] = snap["VEL"]
+            new_snap["ID"] = snap["ID"]
+
+
+def test_copy(snapshot_path):
+    with File(snapshot_path) as snap:
+        new_snap_path = snapshot_path + "-test-snap"
+        with File(new_snap_path) as new_snap:
+            assert new_snap.format is FileFormat.ALT
+            assert new_snap.header == snap.header
+            print(new_snap.inspect())

@@ -2,7 +2,7 @@ import io
 import os
 import sys
 import typing as t
-from collections.abc import Mapping
+from collections.abc import MutableMapping
 from contextlib import AbstractContextManager
 from enum import Enum, unique
 from itertools import accumulate, starmap
@@ -14,12 +14,14 @@ import numpy as np
 SNAP_START_POS = 0
 BLOCK_DELIM_SIZE = 4
 
+# Size of the data chunk where the block total size is stored in snapshots
+# with SnapFormat=2.
+SIZE_CHUNK_SIZE = 4
 # Size of the data chunk where the block id is stored in snapshots
 # with SnapFormat=2.
 ID_CHUNK_SIZE = 4
-
 # Size of the identifier block in snapshots with SnapFormat=2.
-ALT_ID_BLOCK_SIZE = 2 * ID_CHUNK_SIZE
+ALT_ID_BLOCK_SIZE = SIZE_CHUNK_SIZE + ID_CHUNK_SIZE
 
 # Size in bytes of the header.
 HEADER_SIZE = 256
@@ -28,7 +30,7 @@ HEADER_SIZE = 256
 T_BinaryIO = t.BinaryIO
 T_DataLoader = t.Callable[[T_BinaryIO, "Header"], t.Dict[str, np.ndarray]]
 T_DataLoaders = t.Dict[str, T_DataLoader]
-T_Struct = t.Dict[str, "BlockSpec"]
+T_Struct = t.Dict[str, t.Union["BlockSpec", None]]
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
@@ -58,6 +60,17 @@ class SnapshotEOFError(EOFError):
 class FormatError(ValueError):
     """Real and expected structure of Snapshot do not match."""
     pass
+
+
+def write_block_delim(file: T_BinaryIO, block_size: int):
+    """Write a delimiter block. The delimiter content is ``block_size``
+    variable in bytes.
+
+    :param file: Snapshot file.
+    :param block_size:
+    """
+    size_bytes = int.to_bytes(block_size, BLOCK_DELIM_SIZE, sys.byteorder)
+    file.write(size_bytes)
 
 
 def read_size_from_delim(file: T_BinaryIO):
@@ -204,6 +217,16 @@ class Header:
                      hubble_param=data["HubbleParam"])
         return header
 
+    def to_file(self, file: T_BinaryIO):
+        """
+
+        :param file:
+        :return:
+        """
+        self_attrs = attr.astuple(self)
+        data = np.array(self_attrs, dtype=header_dtype)
+        data.tofile(file)
+
 
 @attr.s(auto_attribs=True)
 class BlockSpec:
@@ -280,15 +303,15 @@ class DataLoaders:
     TSTP: t.Type[T_DataLoader] = None
 
 
-@attr.s(auto_attribs=True, frozen=True)
-class File(AbstractContextManager, Mapping):
+@attr.s(auto_attribs=True)
+class File(AbstractContextManager, MutableMapping):
     """Represent a GADGET-2 snapshot file."""
 
     name: os.PathLike
     mode: t.Optional[str] = "r"
+    format: t.Optional[FileFormat] = None
     data_loaders: T_DataLoaders = attr.ib(default=None)
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
-    _format: FileFormat = attr.ib(default=None, init=False, repr=False)
     _header: Header = attr.ib(default=None, init=False, repr=False)
     _struct: T_Struct = attr.ib(default=None, init=False, repr=False)
 
@@ -304,14 +327,19 @@ class File(AbstractContextManager, Mapping):
         file: T_BinaryIO = open(self.name, mode)
         object.__setattr__(self, "_file", file)
         # ************ Define the snapshot structure ************
+        _format = self.format
         if not self.size:
             # Empty, writable files will have FileFormat.ALT.
-            object.__setattr__(self, "_format", FileFormat.ALT)
+            if _format is None:
+                object.__setattr__(self, "format", FileFormat.ALT)
             object.__setattr__(self, "_struct", {})
         else:
             # ************ Define the snapshot Format ************
-            _format = self._detect_format()
-            object.__setattr__(self, "_format", _format)
+            if _format is not None:
+                msg = f"can not set format '{_format}' to a nonempty snapshot"
+                raise FormatError(msg)
+            detected_format = self._detect_format()
+            object.__setattr__(self, "format", detected_format)
             # ************ Initialize the header ************
             block_size = self._read_size_from_delim()
             header = Header.from_file(file)
@@ -338,10 +366,10 @@ class File(AbstractContextManager, Mapping):
         """The snapshot header."""
         return self._header
 
-    @property
-    def format(self):
-        """Detect the snapshot format"""
-        return self._format
+    @header.setter
+    def header(self, new_header: Header):
+        """Set the header in an empty snapshot."""
+        self._write_header(new_header)
 
     @property
     def size(self):
@@ -432,6 +460,15 @@ class File(AbstractContextManager, Mapping):
         """
         size = -BLOCK_DELIM_SIZE if reverse else BLOCK_DELIM_SIZE
         self._file.seek(size, io.SEEK_CUR)
+
+    def _write_block_delim(self, block_size: int):
+        """Write a delimiter block.
+
+        :param block_size: The size in bytes of the delimited block.
+        :return:
+        """
+        size_bytes = int.to_bytes(block_size, BLOCK_DELIM_SIZE, sys.byteorder)
+        self._file.write(size_bytes)
 
     def _skip(self, size: int, reverse: bool = False):
         """Skip a block of ``size`` bytes.
@@ -546,10 +583,71 @@ class File(AbstractContextManager, Mapping):
         num_par_spec_dict = attr.asdict(num_par_spec)
         return split_block_data(data, num_par_spec_dict)
 
-    def __getitem__(self, block_id: str):
-        """Return item"""
+    def _write_id_block(self, block_id: str, block_size: int):
+        """Write a small identifier block.
+
+        :param block_id: The id of the block being identified.
+        :param block_size: The size of the block.
+        :return:
+        """
+        self__file = self._file
+        _ics = ID_CHUNK_SIZE
+        total_size = block_size + 2 * BLOCK_DELIM_SIZE
+        self._write_block_delim(ALT_ID_BLOCK_SIZE)
+        size_bytes = int.to_bytes(total_size, SIZE_CHUNK_SIZE,
+                                  sys.byteorder)
+        id_bytes = f"{block_id:{_ics}.{_ics}}".encode("ascii")
+        self__file.write(id_bytes + size_bytes)
+        self._write_block_delim(ALT_ID_BLOCK_SIZE)
+
+    def _write_header(self, header: Header):
+        """Write the header data to an empty snapshot.
+
+        :param header: The snapshot header.
+        """
+        if self.format is FileFormat.ALT:
+            # Write identifier block.
+            self._write_id_block("HEAD", HEADER_SIZE)
+        self._write_block_delim(HEADER_SIZE)
+        header.to_file(self._file)
+        # Fill remaining header bytes with random data.
+        random_bytes = os.urandom(HEADER_SIZE - header.size)
+        self._file.write(random_bytes)
+        self._write_block_delim(HEADER_SIZE)
+
+    def _write_block_data(self, block_id: str, block_data: BlockData):
+        """Write a block data to an empty snapshot.
+
+        :param block_id: The id of the block whose data is being stored,
+        :param block_data: The block data object.
+        :return:
+        """
+        self__file = self._file
+        eff_size = block_data.size
+        if self.format is FileFormat.ALT:
+            self._write_id_block(block_id, eff_size)
+        self._write_block_delim(eff_size)
+        data_attrs: t.Dict[str, np.ndarray] = \
+            attr.asdict(block_data, filter=EXCLUDE_NONE_FILTER)
+        for data_attr in data_attrs.values():
+            data_attr.tofile(self__file)
+        self._write_block_delim(eff_size)
+
+    def keys(self):
+        """The keys of the snapshot as a Mapping type instance."""
+        return self._struct.keys()
+
+    def __contains__(self, block_id: str):
+        """Test if a block is present in this snapshot."""
+        return block_id in self._struct.keys()
+
+    def __getitem__(self, block_id: str) -> Block:
+        """Return the corresponding block."""
+        if block_id not in self:
+            raise KeyError(f"'{block_id}'")
         if block_id == "HEAD":
-            return self.header
+            msg = "header must be accessed through the 'header' attribute."
+            raise ValueError(msg)
         data_loader = self.data_loaders[block_id]
         block_spec = self._struct[block_id]
         if data_loader is None:
@@ -564,14 +662,33 @@ class File(AbstractContextManager, Mapping):
         assert block_size == block_data.size
         return Block(block_id, block_data)
 
+    def __setitem__(self, block_id: str, block: Block):
+        """Save a block and add it to the snapshot structure."""
+        if block_id == "HEAD":
+            msg = "header must be set through the 'header' attribute"
+            raise ValueError(msg)
+        if block_id in self:
+            msg = f"snapshot does not support blocks reassignment; " \
+                  f"block '{block_id}' already set"
+            raise ValueError(msg)
+        if not isinstance(block_id, str):
+            raise ValueError("the block id must be a string")
+        assert block.id == block_id
+        block_data = block.data
+        self._write_block_data(block_id, block_data)
+        # Set the block id in the structure.
+        self._struct[block_id] = None
+
+    def __delitem__(self, block_id: str):
+        """Delete a block"""
+        msg = f"snapshot does not support blocks deletion"
+        raise TypeError(msg)
+
     def __len__(self) -> int:
-        return len(self.data_loaders)
+        return len(self._struct)
 
     def __iter__(self):
-        yield self.header
-        block_ids = list(self.data_loaders.keys())
-        for block_id in block_ids:
-            yield self[block_id]
+        return iter(self._struct.keys())
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._file.close()
