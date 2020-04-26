@@ -307,7 +307,7 @@ class DataLoaders:
 class File(AbstractContextManager, MutableMapping):
     """Represent a GADGET-2 snapshot file."""
 
-    name: os.PathLike
+    path: os.PathLike
     mode: t.Optional[str] = "r"
     format: t.Optional[FileFormat] = None
     data_loaders: T_DataLoaders = attr.ib(default=None)
@@ -324,7 +324,7 @@ class File(AbstractContextManager, MutableMapping):
         # Force the file to be open in binary mode.
         mode += "b"
         # noinspection PyTypeChecker
-        file: T_BinaryIO = open(self.name, mode)
+        file: T_BinaryIO = open(self.path, mode)
         object.__setattr__(self, "_file", file)
         # ************ Define the snapshot structure ************
         _format = self.format
