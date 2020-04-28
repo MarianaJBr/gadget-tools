@@ -362,6 +362,10 @@ class File(AbstractContextManager, MutableMapping):
             object.__setattr__(self, "_struct", struct)
 
     @property
+    def name(self):
+        return self._file.name
+
+    @property
     def header(self):
         """The snapshot header."""
         return self._header
