@@ -378,6 +378,10 @@ class File(AbstractContextManager, MutableMapping):
         self._goto_start()
         return file_size
 
+    def close(self):
+        """Close snapshot."""
+        self._file.close()
+
     def _detect_format(self):
         """Detect the snapshot file format.
 
@@ -691,4 +695,4 @@ class File(AbstractContextManager, MutableMapping):
         return iter(self._struct.keys())
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._file.close()
+        self.close()
