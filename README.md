@@ -16,8 +16,8 @@ For instance, to create and activate an environment with Python 3.7, we can use
 the following instructions:
 
 ```shell script
-conda-recipe create -n simstoolkitdev-py37 python=3.7
-conda-recipe activate simstoolkitdev-py37
+conda create -n simstoolkitdev-py37 python=3.7
+conda activate simstoolkitdev-py37
 ```
 
 Once the virtual environment becomes active, we must install the dependencies of
