@@ -6,8 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import File
 from sims_toolkit.gadget.snapshot import (
-    Block, BlockData, FileFormat, Header,
-    header_dtype
+    Block, BlockData, FileFormat, Header, header_dtype
 )
 
 load_dotenv()
@@ -77,6 +76,7 @@ def test_copy(snapshot_path):
             new_snap["POS"] = snap["POS"]
             new_snap["VEL"] = snap["VEL"]
             new_snap["ID"] = snap["ID"]
+            new_snap.flush()
 
 
 def test_compare_copy(snapshot_path):
@@ -100,6 +100,7 @@ def test_copy_default_format(snapshot_path):
             new_snap["POS"] = snap["POS"]
             new_snap["VEL"] = snap["VEL"]
             new_snap["ID"] = snap["ID"]
+            new_snap.flush()
 
 
 def test_compare_copy_default_format(snapshot_path):
@@ -122,7 +123,9 @@ def test_copy_block_twice(snapshot_path):
                 new_snap.header = snap.header
                 # This must fail.
                 new_snap["POS"] = snap["POS"]
+                new_snap.flush()
                 new_snap["POS"] = snap["POS"]
+                new_snap.flush()
 
 
 def test_create():
@@ -148,3 +151,4 @@ def test_create():
         pos_block = Block(id="POS", data=block_data)
         # Assign new block.
         snap["POS"] = pos_block
+        snap.flush()

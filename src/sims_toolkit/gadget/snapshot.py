@@ -31,6 +31,7 @@ T_BinaryIO = t.BinaryIO
 T_DataLoader = t.Callable[[T_BinaryIO, "Header"], t.Dict[str, np.ndarray]]
 T_DataLoaders = t.Dict[str, T_DataLoader]
 T_Struct = t.Dict[str, t.Union["BlockSpec", None]]
+T_Storage = t.Dict[str, t.Union["Block", None]]
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
@@ -314,6 +315,7 @@ class File(AbstractContextManager, MutableMapping):
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _header: Header = attr.ib(default=None, init=False, repr=False)
     _struct: T_Struct = attr.ib(default=None, init=False, repr=False)
+    _storage: T_Storage = attr.ib(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self):
         """Post-initialization stage."""
@@ -333,6 +335,7 @@ class File(AbstractContextManager, MutableMapping):
             if _format is None:
                 object.__setattr__(self, "format", FileFormat.ALT)
             object.__setattr__(self, "_struct", {})
+            object.__setattr__(self, "_storage", {})
         else:
             # ************ Define the snapshot Format ************
             if _format is not None:
@@ -360,6 +363,7 @@ class File(AbstractContextManager, MutableMapping):
             # ************ Load block specs ************
             struct: T_Struct = self._define_struct()
             object.__setattr__(self, "_struct", struct)
+            object.__setattr__(self, "_storage", {})
 
     @property
     def name(self):
@@ -373,7 +377,8 @@ class File(AbstractContextManager, MutableMapping):
     @header.setter
     def header(self, new_header: Header):
         """Set the header in an empty snapshot."""
-        self._write_header(new_header)
+        if self.is_empty():
+            self._header = new_header
 
     @property
     def size(self):
@@ -381,6 +386,23 @@ class File(AbstractContextManager, MutableMapping):
         file_size = self._goto_end()
         self._goto_start()
         return file_size
+
+    def is_empty(self):
+        """Test if a snapshot is empty"""
+        return not self.size
+
+    def flush(self):
+        """Save in-memory block data to file."""
+        if self.header is None:
+            raise ValueError("snapshot header has not been initialized.")
+        self._write_header(self.header)
+        block_ids = list(self._storage.keys())
+        for block_id in block_ids:
+            block = self._storage.pop(block_id)
+            block_data = block.data
+            self._write_block_data(block_id, block_data)
+            # Set the block id in the structure.
+            self._struct[block_id] = None
 
     def close(self):
         """Close snapshot."""
@@ -682,10 +704,7 @@ class File(AbstractContextManager, MutableMapping):
         if not isinstance(block_id, str):
             raise ValueError("the block id must be a string")
         assert block.id == block_id
-        block_data = block.data
-        self._write_block_data(block_id, block_data)
-        # Set the block id in the structure.
-        self._struct[block_id] = None
+        self._storage[block_id] = block
 
     def __delitem__(self, block_id: str):
         """Delete a block"""
