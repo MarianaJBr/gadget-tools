@@ -205,17 +205,17 @@ class Header:
         num_par_total = NumParSpec(*data["Nall"])
         header = cls(num_par_spec=num_par_spec,
                      mass_spec=mass_spec,
-                     time=data["Time"],
-                     redshift=data["Redshift"],
-                     flag_sfr=data["FlagSfr"],
-                     flag_feedback=data["FlagFeedback"],
+                     time=float(data["Time"]),
+                     redshift=float(data["Redshift"]),
+                     flag_sfr=bool(data["FlagSfr"]),
+                     flag_feedback=bool(data["FlagFeedback"]),
                      num_par_total=num_par_total,
-                     flag_cooling=data["FlagCooling"],
-                     num_files_snap=data["NumFiles"],
-                     box_size=data["BoxSize"],
-                     omega_zero=data["Omega0"],
-                     omega_lambda=data["OmegaLambda"],
-                     hubble_param=data["HubbleParam"])
+                     flag_cooling=bool(data["FlagCooling"]),
+                     num_files_snap=int(data["NumFiles"]),
+                     box_size=float(data["BoxSize"]),
+                     omega_zero=float(data["Omega0"]),
+                     omega_lambda=float(data["OmegaLambda"]),
+                     hubble_param=float(data["HubbleParam"]))
         return header
 
     def to_file(self, file: T_BinaryIO):
@@ -377,7 +377,7 @@ class File(AbstractContextManager, MutableMapping):
     @header.setter
     def header(self, new_header: Header):
         """Set the header in an empty snapshot."""
-        if self.is_empty():
+        if self.is_new():
             self._header = new_header
 
     @property
@@ -387,9 +387,15 @@ class File(AbstractContextManager, MutableMapping):
         self._goto_start()
         return file_size
 
-    def is_empty(self):
-        """Test if a snapshot is empty"""
+    def is_new(self):
+        """Test if this is a new snapshot."""
         return not self.size
+
+    def is_empty(self):
+        """Test if this snapshot is empty."""
+        if self.header is None and not self._storage:
+            return True
+        return False
 
     def flush(self):
         """Save in-memory block data to file."""
