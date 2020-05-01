@@ -110,6 +110,7 @@ def skip(file: T_BinaryIO, size: int, reverse: bool = False):
 
 # Numpy dtype for the snapshot header data.
 # We name each field according to GADGET-2 manual.
+# TODO: Add the remaining fields according to GADGET-2 manual.
 header_dtype = np.dtype([
     ("Npart", "u4", 6),
     ("Massarr", "f8", 6),
@@ -239,7 +240,10 @@ class BlockSpec:
 
 @attr.s(auto_attribs=True, frozen=True)
 class BlockData:
-    """The block data, organized by particle type."""
+    """The block data, organized by particle type.
+
+    TODO: Adjust the equality comparison method for BlockData instances.
+    """
     gas: t.Optional[np.ndarray] = None
     halo: t.Optional[np.ndarray] = None
     disk: t.Optional[np.ndarray] = None
@@ -716,6 +720,8 @@ class File(AbstractContextManager, MutableMapping):
             msg = f"a nonempty snapshot does not support blocks " \
                   f"reassignment (block '{block_id}' already set)"
             raise KeyError(msg)
+        # TODO: Should we avoid the insertion of blocks that do not
+        #   have a well-defined data loader?
         assert block.id == block_id
         self._temp_storage[block_id] = block
 
