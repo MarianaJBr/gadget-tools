@@ -552,7 +552,6 @@ class File(AbstractContextManager, MutableMapping):
     def _define_struct(self) -> T_Struct:
         """Define the structure of this snapshot file.
 
-        :param self: A snapshot file object opened in binary mode.
         :return: The snapshot blocks specs.
         """
         # Exclude the header spec.
@@ -569,8 +568,10 @@ class File(AbstractContextManager, MutableMapping):
             spec_map: T_Struct = dict(zip(loader_ids, spec_list))
         else:
             spec_map = {spec.id: spec for spec in spec_list}
-        return {loader_id: spec_map.get(loader_id, None) for loader_id in
-                loader_ids}
+        # The structure must contain only block specs whose
+        # ids belong to a well-defined data loader.
+        return {block_id: spec_map[block_id] for block_id in loader_ids if
+                block_id in spec_map}
 
     def _goto_block(self, block_spec: BlockSpec):
         """Jump directly to the block data location in the snapshot.
@@ -689,10 +690,13 @@ class File(AbstractContextManager, MutableMapping):
             return self._temp_storage[block_id]
         data_loader = self.data_loaders[block_id]
         block_spec = self._struct[block_id]
+        # NOTE: These checks seem unnecessary now...
         if data_loader is None:
-            raise TypeError("block type is not defined")
+            err_msg = f"loader for block '{block_id}' is not defined"
+            raise TypeError(err_msg)
         if block_spec is None:
-            raise FormatError("block not found in snapshot")
+            err_msg = f"block '{block_id}' not found in snapshot"
+            raise FormatError(err_msg)
         self._goto_block(block_spec)
         block_size = self._read_size_from_delim()
         block_data_dict = data_loader(self._file, self.header)
