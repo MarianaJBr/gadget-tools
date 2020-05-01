@@ -22,6 +22,38 @@ def snapshot_path():
     return snap_path
 
 
+@pytest.fixture
+def dummy_snap_header():
+    """"""
+    # Header attributes from a real snapshot.
+    header_attrs = ((2479138, 2539061, 0, 0, 99736, 0),
+                    (0.0, 0.053677940511483495, 0.0, 0.0, 0.0, 0.0),
+                    0.24999999949102492, 3.0000000081436013, 1, 1,
+                    (125791124, 134217728, 0, 0, 8426604, 0), 1, 64,
+                    100000.0, 0.308, 0.692, 0.678)
+    header_data = np.array(header_attrs, dtype=header_dtype)
+    return Header.from_data(header_data)
+
+
+@pytest.fixture
+def dummy_snap_block(dummy_snap_header):
+    """
+
+    :param dummy_snap_header:
+    :return:
+    """
+    num_par_gas = dummy_snap_header.num_par_spec.gas
+    num_par_halo = dummy_snap_header.num_par_spec.halo
+    num_par_stars = dummy_snap_header.num_par_spec.stars
+    pos_attrs = {
+        "gas": np.random.random_sample((num_par_gas, 3)).astype("f4"),
+        "halo": np.random.random_sample((num_par_halo, 3)).astype("f4"),
+        "stars": np.random.random_sample((num_par_stars, 3)).astype("f4")
+    }
+    block_data = BlockData(**pos_attrs)
+    return Block(id="POS", data=block_data)
+
+
 def test_read(snapshot_path):
     """"""
     with File(snapshot_path) as snap:
@@ -128,27 +160,21 @@ def test_copy_block_twice(snapshot_path):
                 new_snap.flush()
 
 
-def test_create():
+def test_create(dummy_snap_header, dummy_snap_block):
     """"""
     file_path = Path(os.path.join(os.getcwd(), "test-dummy-snap"))
-    with File(file_path, "w") as snap:
-        # Header attributes from a real snapshot.
-        header_attrs = ((2479138, 2539061, 0, 0, 99736, 0),
-                        (0.0, 0.053677940511483495, 0.0, 0.0, 0.0, 0.0),
-                        0.24999999949102492, 3.0000000081436013, 1, 1,
-                        (125791124, 134217728, 0, 0, 8426604, 0), 1, 64,
-                        100000.0, 0.308, 0.692, 0.678)
-        header_data = np.array(header_attrs, dtype=header_dtype)
-        # Assign new header.
-        header = Header.from_data(header_data)
-        snap.header = header
-        # Fake position data.
-        num_par_halo = header.num_par_spec.halo
-        pos_attrs = {
-            "gas": np.random.random_sample((num_par_halo, 3))
-        }
-        block_data = BlockData(**pos_attrs)
-        pos_block = Block(id="POS", data=block_data)
-        # Assign new block.
-        snap["POS"] = pos_block
+    file_format = FileFormat.ALT
+    with File(file_path, "w", format=file_format) as snap:
+        # Assign new header and block.
+        snap.header = dummy_snap_header
+        snap[dummy_snap_block.id] = dummy_snap_block
+        print(dummy_snap_block)
         snap.flush()
+
+
+def test_read_created(dummy_snap_header):
+    """"""
+    file_path = Path(os.path.join(os.getcwd(), "test-dummy-snap"))
+    with File(file_path) as snap:
+        assert snap.header == dummy_snap_header
+        print(snap["POS"])
