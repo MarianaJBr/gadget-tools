@@ -1,10 +1,14 @@
 import pathlib
+import typing as t
 
 import attr
 import click
+import numpy as np
 from colored import attr as c_attr, fg, stylize
-from sims_toolkit.gadget.snapshot import File, FileFormat
+from sims_toolkit.gadget.snapshot import Block, File, FileFormat
 from tabulate import tabulate
+
+T_BlockDataAttrs = t.Dict[str, np.ndarray]
 
 FG_CYAN = fg("cyan_2")
 FG_RED = fg("red")
@@ -17,18 +21,18 @@ def info_label(text: str):
     return stylize(text, BOLD_TXT)
 
 
-def describe_file(file: File):
+def describe_snapshot(snap: File):
     """Show the basic info of a GADGET-2 snapshot.
 
-    :param file: The File instance that represents the snapshot.
+    :param snap: The File instance that represents the snapshot.
     :return: The information as a string.
     """
-    if file.format is FileFormat.ALT:
+    header = snap.header
+    file_size = snap.size / 1024 ** 2
+    if snap.format is FileFormat.ALT:
         file_format = "Enhanced (equivalent to SnapFormat=2)"
     else:
         file_format = "Default"
-    header = file.header
-    file_size = file.size / 1024 ** 2
     num_par_spec_dict = attr.asdict(header.num_par_spec)
     mass_spec_dict = attr.asdict(header.mass_spec)
     num_par_total_dict = attr.asdict(header.num_par_total)
@@ -36,34 +40,40 @@ def describe_file(file: File):
     par_nums = [int(num_par) for num_par in num_par_spec_dict.values()]
     par_masses = [mass for mass in mass_spec_dict.values()]
     total_par_nums = [int(num_par) for num_par in num_par_total_dict.values()]
-    table_headers = ["Type", "Number", "Mass", "Total Number"]
+    table_headers = ["Particle Type", "Number", "Mass", "Total Number"]
     table_value_formats = ["s", "d", ".3G", "d"]
     table_values = list(zip(par_types, par_nums, par_masses, total_par_nums))
     par_spec_table = tabulate(table_values,
                               headers=table_headers,
                               floatfmt=table_value_formats)
-    blocks = [bloc.id or "NOT IDENTIFIED" for bloc in file.inspect()]
+    blocks = [block.id or "NOT IDENTIFIED" for block in snap.inspect()]
     snap_blocks = ", ".join(blocks)
-
+    reachable_blocks = ", ".join(snap.keys())
+    blocks_info_list = [describe_block(block) for block in snap.values()]
+    blocks_info_str = "\n".join(blocks_info_list)
+    stored_blocks_str = stylize(snap_blocks, FG_ORANGE + BOLD_TXT)
+    reachable_blocks_str = stylize(reachable_blocks, FG_ORANGE + BOLD_TXT)
+    # Here we construct out information string.
     snap_info_tpl = f"""
-{stylize("SNAPSHOT INFORMATION", FG_RED + BOLD_TXT)}
-{stylize("====================", FG_RED + BOLD_TXT)}
+{stylize("==========================", FG_RED + BOLD_TXT)}
+{stylize("   SNAPSHOT INFORMATION   ", FG_RED + BOLD_TXT)}
+{stylize("==========================", FG_RED + BOLD_TXT)}
 
 {stylize("File Information", FG_CYAN + BOLD_TXT)}
-----------------
+{stylize("++++++++++++++++", FG_CYAN + BOLD_TXT)}
 
-Path:       {file.name}
+Path:       {snap.name}
 Format:     {file_format}
-Size:       {file_size:.2F}MB
+Size:       {file_size:.6F}MB
 
 {stylize("Simulation Information", FG_CYAN + BOLD_TXT)}
-----------------------
+{stylize("++++++++++++++++++++++", FG_CYAN + BOLD_TXT)}
 
 {info_label("Time")}                {header.time:.5G}
 {info_label("Redshift")}            {header.redshift:.5G}
-{info_label("Flag Sfr")}            {header.flag_sfr:.5G}
-{info_label("Flag Feedback")}       {header.flag_feedback:.5G}
-{info_label("Flag Cooling")}        {header.flag_cooling:.5G}
+{info_label("Flag Sfr")}            {header.flag_sfr}
+{info_label("Flag Feedback")}       {header.flag_feedback}
+{info_label("Flag Cooling")}        {header.flag_cooling}
 {info_label("Number of Files")}     {header.num_files_snap}
 {info_label("Box Size")}            {header.box_size:.5E}
 {info_label("Omega0")}              {header.omega_zero:.5G}
@@ -72,9 +82,40 @@ Size:       {file_size:.2F}MB
 
 {par_spec_table}
 
-{info_label("Stored Snapshot Blocks")}: {snap_blocks}
+{info_label("Stored Snapshot Blocks")}: {stored_blocks_str}
+{info_label("Reachable Snapshot Blocks (Exc. header)")}: {reachable_blocks_str}
+
+
+{stylize("Blocks Information", FG_CYAN + BOLD_TXT)}
+{stylize("++++++++++++++++++", FG_CYAN + BOLD_TXT)}
+{blocks_info_str}
     """
     return snap_info_tpl
+
+
+def describe_block(block: Block):
+    """Give an overview of the contents of a snapshot data block.
+
+    :param block: A Block instance.
+    :return: The block contents as a string.
+    """
+    block_attrs: T_BlockDataAttrs = attr.asdict(block.data)
+    par_types = [par_type.capitalize() for par_type in block_attrs.keys()]
+    par_data_str_list = []
+    for data in block_attrs.values():
+        data_str = repr(data) if data is not None else "No data"
+        par_data_str_list.append(data_str)
+    table_headers = ["Particle Type", "Data"]
+    table_values = list(zip(par_types, par_data_str_list))
+    par_data_table = tabulate(table_values, headers=table_headers)
+    block_info_str = f"""
+---------------------------
+    Block ID:   {block.id}
+---------------------------
+
+{par_data_table}
+    """
+    return block_info_str
 
 
 @click.group()
@@ -97,7 +138,7 @@ def describe(path: str):
     :param path:
     """
     snap = File(pathlib.Path(path))
-    description = describe_file(snap)
+    description = describe_snapshot(snap)
     click.echo_via_pager(description)
 
 
