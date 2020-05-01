@@ -385,8 +385,9 @@ class File(AbstractContextManager, MutableMapping):
     @property
     def size(self):
         """Size of the snapshot in bytes"""
+        act_pos = self._file.tell()
         file_size = self._goto_end()
-        self._goto_start()
+        self._file.seek(act_pos, io.SEEK_SET)
         return file_size
 
     def is_empty(self):
@@ -502,7 +503,7 @@ class File(AbstractContextManager, MutableMapping):
         :param block_size: The size in bytes of the delimited block.
         :return:
         """
-        size_bytes = int.to_bytes(block_size, BLOCK_DELIM_SIZE, sys.byteorder)
+        size_bytes = block_size.to_bytes(BLOCK_DELIM_SIZE, sys.byteorder)
         self._file.write(size_bytes)
 
     def _skip(self, size: int, reverse: bool = False):
@@ -629,8 +630,7 @@ class File(AbstractContextManager, MutableMapping):
         _ics = ID_CHUNK_SIZE
         total_size = block_size + 2 * BLOCK_DELIM_SIZE
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
-        size_bytes = int.to_bytes(total_size, SIZE_CHUNK_SIZE,
-                                  sys.byteorder)
+        size_bytes = total_size.to_bytes(SIZE_CHUNK_SIZE, sys.byteorder)
         id_bytes = f"{block_id:{_ics}.{_ics}}".encode("ascii")
         self__file.write(id_bytes + size_bytes)
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
