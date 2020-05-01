@@ -5,7 +5,7 @@ import typing as t
 from collections.abc import MutableMapping
 from contextlib import AbstractContextManager
 from enum import Enum, unique
-from itertools import accumulate, starmap
+from itertools import accumulate, chain, starmap
 
 import attr
 import numpy as np
@@ -31,7 +31,7 @@ T_BinaryIO = t.BinaryIO
 T_DataLoader = t.Callable[[T_BinaryIO, "Header"], t.Dict[str, np.ndarray]]
 T_DataLoaders = t.Dict[str, T_DataLoader]
 T_Struct = t.Dict[str, t.Union["BlockSpec", None]]
-T_Storage = t.Dict[str, t.Union["Block", None]]
+T_TempStorage = t.Dict[str, "Block"]
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
@@ -315,7 +315,7 @@ class File(AbstractContextManager, MutableMapping):
     _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _header: Header = attr.ib(default=None, init=False, repr=False)
     _struct: T_Struct = attr.ib(default=None, init=False, repr=False)
-    _storage: T_Storage = attr.ib(default=None, init=False, repr=False)
+    _temp_storage: T_TempStorage = attr.ib(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self):
         """Post-initialization stage."""
@@ -335,7 +335,7 @@ class File(AbstractContextManager, MutableMapping):
             if _format is None:
                 object.__setattr__(self, "format", FileFormat.ALT)
             object.__setattr__(self, "_struct", {})
-            object.__setattr__(self, "_storage", {})
+            object.__setattr__(self, "_temp_storage", {})
         else:
             # ************ Define the snapshot Format ************
             if _format is not None:
@@ -363,7 +363,7 @@ class File(AbstractContextManager, MutableMapping):
             # ************ Load block specs ************
             struct: T_Struct = self._define_struct()
             object.__setattr__(self, "_struct", struct)
-            object.__setattr__(self, "_storage", {})
+            object.__setattr__(self, "_temp_storage", {})
 
     @property
     def name(self):
@@ -377,8 +377,10 @@ class File(AbstractContextManager, MutableMapping):
     @header.setter
     def header(self, new_header: Header):
         """Set the header in an empty snapshot."""
-        if self.is_new():
-            self._header = new_header
+        if not self.is_empty():
+            err_msg = "a nonempty snapshot header can not be changed."
+            raise AttributeError(err_msg)
+        self._header = new_header
 
     @property
     def size(self):
@@ -387,24 +389,21 @@ class File(AbstractContextManager, MutableMapping):
         self._goto_start()
         return file_size
 
-    def is_new(self):
-        """Test if this is a new snapshot."""
-        return not self.size
-
     def is_empty(self):
         """Test if this snapshot is empty."""
-        if self.header is None and not self._storage:
-            return True
-        return False
+        return not self.size
 
     def flush(self):
         """Save in-memory block data to file."""
-        if self.header is None:
-            raise ValueError("snapshot header has not been initialized.")
-        self._write_header(self.header)
-        block_ids = list(self._storage.keys())
+        if self.is_empty():
+            if self.header is None:
+                err_msg = "the snapshot header has not been initialized."
+                raise AttributeError(err_msg)
+            self._write_header(self.header)
+        block_ids = list(self._temp_storage.keys())
         for block_id in block_ids:
-            block = self._storage.pop(block_id)
+            # Remove block from temporary storage.
+            block = self._temp_storage.pop(block_id)
             block_data = block.data
             self._write_block_data(block_id, block_data)
             # Set the block id in the structure.
@@ -675,6 +674,8 @@ class File(AbstractContextManager, MutableMapping):
 
     def __contains__(self, block_id: str):
         """Test if a block is present in this snapshot."""
+        if block_id in self._temp_storage:
+            return True
         return block_id in self._struct.keys()
 
     def __getitem__(self, block_id: str) -> Block:
@@ -684,6 +685,8 @@ class File(AbstractContextManager, MutableMapping):
         if block_id == "HEAD":
             msg = "header must be accessed through the 'header' attribute."
             raise ValueError(msg)
+        if block_id in self._temp_storage:
+            return self._temp_storage[block_id]
         data_loader = self.data_loaders[block_id]
         block_spec = self._struct[block_id]
         if data_loader is None:
@@ -700,28 +703,33 @@ class File(AbstractContextManager, MutableMapping):
 
     def __setitem__(self, block_id: str, block: Block):
         """Save a block and add it to the snapshot structure."""
+        if not isinstance(block_id, str):
+            raise KeyError("the block id must be a string")
         if block_id == "HEAD":
             msg = "header must be set through the 'header' attribute"
-            raise ValueError(msg)
-        if block_id in self:
-            msg = f"snapshot does not support blocks reassignment; " \
-                  f"block '{block_id}' already set"
-            raise ValueError(msg)
-        if not isinstance(block_id, str):
-            raise ValueError("the block id must be a string")
+            raise KeyError(msg)
+        if block_id in self._struct:
+            msg = f"a nonempty snapshot does not support blocks " \
+                  f"reassignment (block '{block_id}' already set)"
+            raise KeyError(msg)
         assert block.id == block_id
-        self._storage[block_id] = block
+        self._temp_storage[block_id] = block
 
     def __delitem__(self, block_id: str):
         """Delete a block"""
-        msg = f"snapshot does not support blocks deletion"
-        raise TypeError(msg)
+        if block_id in self._temp_storage:
+            del self._temp_storage[block_id]
+            return
+        msg = f"a nonempty snapshot does not support blocks deletion"
+        raise KeyError(msg)
 
     def __len__(self) -> int:
-        return len(self._struct)
+        return len(self._struct) + len(self._temp_storage)
 
     def __iter__(self):
-        return iter(self._struct.keys())
+        struct_block_ids = self._struct.keys()
+        temp_storage_block_ids = self._temp_storage.keys()
+        return chain(struct_block_ids, temp_storage_block_ids)
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()

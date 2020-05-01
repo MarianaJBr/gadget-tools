@@ -115,7 +115,7 @@ def test_compare_copy_default_format(snapshot_path):
 
 def test_copy_block_twice(snapshot_path):
     """"""
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         with File(snapshot_path) as snap:
             new_snap_path = snapshot_path + "-test-snap"
             with File(new_snap_path, "w") as new_snap:
