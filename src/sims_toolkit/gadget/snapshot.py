@@ -112,13 +112,13 @@ def skip(file: T_BinaryIO, size: int, reverse: bool = False):
 # We name each field according to GADGET-2 manual.
 # TODO: Add the remaining fields according to GADGET-2 manual.
 header_dtype = np.dtype([
-    ("Npart", "u4", 6),
+    ("Npart", "i4", 6),
     ("Massarr", "f8", 6),
     ("Time", "f8"),
     ("Redshift", "f8"),
     ("FlagSfr", "i4"),
     ("FlagFeedback", "i4"),
-    ("Nall", "i4", 6),
+    ("Nall", "u4", 6),
     ("FlagCooling", "i4"),
     ("NumFiles", "i4"),
     ("BoxSize", "f8"),
