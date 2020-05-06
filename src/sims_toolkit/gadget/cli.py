@@ -102,11 +102,14 @@ def describe_block(block: Block):
     block_attrs: T_BlockDataAttrs = attr.asdict(block.data)
     par_types = [par_type.capitalize() for par_type in block_attrs.keys()]
     par_data_str_list = []
+    par_data_shape_list = []
     for data in block_attrs.values():
         data_str = repr(data) if data is not None else "No data"
+        data_shape_str = data.shape if data is not None else "No shape"
         par_data_str_list.append(data_str)
-    table_headers = ["Particle Type", "Data"]
-    table_values = list(zip(par_types, par_data_str_list))
+        par_data_shape_list.append(data_shape_str)
+    table_headers = ["Particle Type", "Data", "Data Shape"]
+    table_values = list(zip(par_types, par_data_str_list, par_data_shape_list))
     par_data_table = tabulate(table_values, headers=table_headers)
     block_info_str = f"""
 ---------------------------
@@ -133,10 +136,7 @@ def gadget_snap():
 @gadget_snap.command()
 @click.argument("path", type=click.Path(exists=True))
 def describe(path: str):
-    """Describe the GADGET-2 snapshot contents.
-
-    :param path:
-    """
+    """Describe the contents of a GADGET-2 snapshot."""
     snap = File(pathlib.Path(path))
     description = describe_snapshot(snap)
     click.echo_via_pager(description)
