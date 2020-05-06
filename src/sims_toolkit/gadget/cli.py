@@ -1,11 +1,16 @@
+import os
 import pathlib
 import typing as t
+from errno import ENOENT
+from functools import reduce
 
 import attr
 import click
 import numpy as np
 from colored import attr as c_attr, fg, stylize
-from sims_toolkit.gadget.snapshot import Block, File, FileFormat
+from sims_toolkit.gadget.snapshot import (
+    Block, BlockData, EXCLUDE_NONE_FILTER, File, FileFormat, Header
+)
 from tabulate import tabulate
 
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
@@ -140,6 +145,101 @@ def describe(path: str):
     snap = File(pathlib.Path(path))
     description = describe_snapshot(snap)
     click.echo_via_pager(description)
+
+
+def merge_headers(header: Header, other_header: Header):
+    """Combine the headers of two snapshots that will be merged.
+
+    The snapshots should belong to a single simulation. Otherwise,
+    the routine could break, or data consistency is not guaranteed.
+
+    :param header: The first header to combine.
+    :param other_header: The second header to combine
+    :return: The combined header.
+    """
+    # Consistency check.
+    data = header.as_data()
+    data["Npart"] = data["Nall"]
+    other_data = other_header.as_data()
+    other_data["Npart"] = other_data["Nall"]
+    assert Header.from_data(data) == Header.from_data(other_data)
+    # Merge data of both snapshots.
+    new_data = header.as_data()
+    new_data["Npart"] += other_header.as_data()["Npart"]
+    # Return updated header.
+    return Header.from_data(new_data)
+
+
+def merge_blocks_data(block_data: BlockData, other_block_data: BlockData):
+    """Merge two blocks from a pair of snapshots.
+
+    The snapshots should belong to a single simulation. Otherwise,
+    the routine could break, or data consistency is not guaranteed.
+
+    :param block_data: The first block data to combine.
+    :param other_block_data: The second block data to combine.
+    :return: The combined block data.
+    """
+    data_dict: T_BlockDataAttrs = \
+        attr.asdict(block_data, filter=EXCLUDE_NONE_FILTER)
+    other_data_dict: T_BlockDataAttrs = \
+        attr.asdict(other_block_data, filter=EXCLUDE_NONE_FILTER)
+    merged_par_types = set(data_dict) | set(other_data_dict)
+    merged_data_dict = {}
+    for par_type in merged_par_types:
+        par_type_data = []
+        if par_type in data_dict:
+            par_type_data.append(data_dict[par_type])
+        if par_type in other_data_dict:
+            par_type_data.append(other_data_dict[par_type])
+        merged_data_dict[par_type] = np.concatenate(par_type_data)
+    return BlockData(**merged_data_dict)
+
+
+file_format_type = click.Choice(["ALT", "DEFAULT"], case_sensitive=False)
+blocks_help = "A (comma-separated) list of the data blocks ids that will be " \
+              "merged. For instance, --blocks=POS,VEL,ID merges the " \
+              "positions, velocities, and particles ids, respectively. By " \
+              "default, only the positions get merged."
+file_format_help = "The file format of the resulting snapshot. The " \
+                   "enhanced format ALT is equivalent to SnapFormat=2."
+
+
+@gadget_snap.command()
+@click.argument("base-path", type=click.Path(exists=True))
+@click.option("--blocks", type=str, default="POS", help=blocks_help)
+@click.option("-f", "--file-format", type=file_format_type, default="ALT",
+              help=file_format_help)
+def merge_set(base_path: str, blocks: str, file_format: str):
+    """Merge a set of related GADGET-2 snapshots."""
+    base_path = pathlib.Path(base_path)
+    with File(base_path) as base_snap:
+        num_files_snap = base_snap.header.num_files_snap
+    snap_set = []
+    for idx in range(num_files_snap):
+        path = base_path.with_suffix(f".{idx}")
+        if not path.exists():
+            raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
+        snap_set.append(File(path))
+    merged_suffix = f".merged-{0}-{num_files_snap}"
+    merged_path = base_path.with_suffix(merged_suffix)
+    snap_format = FileFormat[file_format.upper()]
+    # Create snapshot to store the merged data.
+    new_snap = File(merged_path, "w", format=snap_format)
+    headers = (snap.header for snap in snap_set)
+    new_snap.header = reduce(merge_headers, headers)
+    # Save to file.
+    new_snap.flush()
+    block_ids = blocks.split(",")
+    for block_id in block_ids:
+        blocks_data = (snap[block_id].data for snap in snap_set)
+        merged_block_data = reduce(merge_blocks_data, blocks_data)
+        new_snap[block_id] = Block(id=block_id, data=merged_block_data)
+        new_snap.flush()
+    # Save block contents to file.
+    new_snap.close()
+    for snap in snap_set:
+        snap.close()
 
 
 if __name__ == '__main__':
