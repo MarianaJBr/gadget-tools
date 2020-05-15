@@ -6,7 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from sims_toolkit.gadget import File
 from sims_toolkit.gadget.snapshot import (
-    Block, BlockData, FileFormat, Header, header_dtype
+    FileFormat, Header, header_dtype
 )
 
 load_dotenv()
@@ -42,16 +42,15 @@ def dummy_snap_block(dummy_snap_header):
     :param dummy_snap_header:
     :return:
     """
-    num_par_gas = dummy_snap_header.num_par_spec.gas
-    num_par_halo = dummy_snap_header.num_par_spec.halo
-    num_par_stars = dummy_snap_header.num_par_spec.stars
-    pos_attrs = {
+    num_par_gas = dummy_snap_header.num_pars.gas
+    num_par_halo = dummy_snap_header.num_pars.halo
+    num_par_stars = dummy_snap_header.num_pars.stars
+    # Data for types gas, halo, disk, bulge, stars, bndry.
+    return {
         "gas": np.random.random_sample((num_par_gas, 3)).astype("f4"),
         "halo": np.random.random_sample((num_par_halo, 3)).astype("f4"),
-        "stars": np.random.random_sample((num_par_stars, 3)).astype("f4")
+        "stars": np.random.random_sample((num_par_stars, 3)).astype("f4"),
     }
-    block_data = BlockData(**pos_attrs)
-    return Block(id="POS", data=block_data)
 
 
 def test_read(snapshot_path):
@@ -80,7 +79,7 @@ def test_load_blocks(snapshot_path):
     """"""
     with File(snapshot_path) as snap:
         positions1 = snap["POS"]
-        velocities = snap["ID"]
+        velocities = snap["VEL"]
         positions2 = snap["POS"]
         print(snap.header)
         print(positions1)
@@ -167,8 +166,8 @@ def test_create(dummy_snap_header, dummy_snap_block):
     with File(file_path, "w", format=file_format) as snap:
         # Assign new header and block.
         snap.header = dummy_snap_header
-        snap[dummy_snap_block.id] = dummy_snap_block
-        print(dummy_snap_block)
+        snap["POS"] = dummy_snap_block
+        print(snap["POS"])
         snap.flush()
 
 

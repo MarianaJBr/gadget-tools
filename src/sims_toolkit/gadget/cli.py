@@ -3,14 +3,13 @@ import pathlib
 import typing as t
 from errno import ENOENT
 from functools import reduce
+from itertools import filterfalse
 
 import attr
 import click
 import numpy as np
 from colored import attr as c_attr, fg, stylize
-from sims_toolkit.gadget.snapshot import (
-    Block, BlockData, EXCLUDE_NONE_FILTER, File, FileFormat, Header
-)
+from sims_toolkit.gadget.snapshot import Block, File, FileFormat, Header
 from tabulate import tabulate
 
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
@@ -38,9 +37,9 @@ def describe_snapshot(snap: File):
         file_format = "Enhanced (equivalent to SnapFormat=2)"
     else:
         file_format = "Default"
-    num_par_spec_dict = attr.asdict(header.num_par_spec)
-    mass_spec_dict = attr.asdict(header.mass_spec)
-    num_par_total_dict = attr.asdict(header.num_par_total)
+    num_par_spec_dict = attr.asdict(header.num_pars)
+    mass_spec_dict = attr.asdict(header.par_masses)
+    num_par_total_dict = attr.asdict(header.total_num_pars)
     par_types = [par_type.capitalize() for par_type in num_par_spec_dict]
     par_nums = [int(num_par) for num_par in num_par_spec_dict.values()]
     par_masses = [mass for mass in mass_spec_dict.values()]
@@ -104,13 +103,14 @@ def describe_block(block: Block):
     :param block: A Block instance.
     :return: The block contents as a string.
     """
-    block_attrs: T_BlockDataAttrs = attr.asdict(block.data)
-    par_types = [par_type.capitalize() for par_type in block_attrs.keys()]
+    par_types = []
     par_data_str_list = []
     par_data_shape_list = []
-    for data in block_attrs.values():
+    for par_type in block:
+        data = block[par_type].data
         data_str = repr(data) if data is not None else "No data"
         data_shape_str = data.shape if data is not None else "No shape"
+        par_types.append(par_type)
         par_data_str_list.append(data_str)
         par_data_shape_list.append(data_shape_str)
     table_headers = ["Particle Type", "Data", "Data Shape"]
@@ -170,30 +170,28 @@ def merge_headers(header: Header, other_header: Header):
     return Header.from_data(new_data)
 
 
-def merge_blocks_data(block_data: BlockData, other_block_data: BlockData):
-    """Merge two blocks from a pair of snapshots.
+def merge_block_set(block_set: t.Iterable[Block], header: Header):
+    """Merge a block set from a related collection of snapshots.
 
     The snapshots should belong to a single simulation. Otherwise,
     the routine could break, or data consistency is not guaranteed.
 
-    :param block_data: The first block data to combine.
-    :param other_block_data: The second block data to combine.
+    :param block_set: The first block data to combine.
+    :param header: The header of the final snapshot.
     :return: The combined block data.
     """
-    data_dict: T_BlockDataAttrs = \
-        attr.asdict(block_data, filter=EXCLUDE_NONE_FILTER)
-    other_data_dict: T_BlockDataAttrs = \
-        attr.asdict(other_block_data, filter=EXCLUDE_NONE_FILTER)
-    merged_par_types = set(data_dict) | set(other_data_dict)
-    merged_data_dict = {}
-    for par_type in merged_par_types:
-        par_type_data = []
-        if par_type in data_dict:
-            par_type_data.append(data_dict[par_type])
-        if par_type in other_data_dict:
-            par_type_data.append(other_data_dict[par_type])
-        merged_data_dict[par_type] = np.concatenate(par_type_data)
-    return BlockData(**merged_data_dict)
+
+    def is_none(_obj: t.Any):
+        """Return True if an object is None"""
+        return _obj is None
+
+    data_buffer = {par_type: None for par_type in attr.asdict(header.par_specs)}
+    for par_type in data_buffer.keys():
+        par_data_gen = (block[par_type].data for block in block_set)
+        par_data_list = list(filterfalse(is_none, par_data_gen))
+        par_data = np.concatenate(par_data_list) if par_data_list else None
+        data_buffer[par_type] = par_data
+    return data_buffer
 
 
 file_format_type = click.Choice(["ALT", "DEFAULT"], case_sensitive=False)
@@ -232,9 +230,9 @@ def merge_set(base_path: str, blocks: str, file_format: str):
     new_snap.flush()
     block_ids = blocks.split(",")
     for block_id in block_ids:
-        blocks_data = (snap[block_id].data for snap in snap_set)
-        merged_block_data = reduce(merge_blocks_data, blocks_data)
-        new_snap[block_id] = Block(id=block_id, data=merged_block_data)
+        block_set = [snap[block_id] for snap in snap_set]
+        merged_block_data = merge_block_set(block_set, new_snap.header)
+        new_snap[block_id] = merged_block_data
         new_snap.flush()
     # Save block contents to file.
     new_snap.close()
