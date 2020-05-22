@@ -32,7 +32,7 @@ T_BinaryIO = t.BinaryIO
 T_DataHandlers = t.Dict[str, "DataHandler"]
 T_Struct = t.Dict[str, t.Union["BlockSpec", None]]
 T_BlockDataBuffer = t.Dict[str, np.ndarray]
-T_TempStorage = t.Dict[str, T_BlockDataBuffer]
+T_DataBuffer = t.Dict[str, T_BlockDataBuffer]
 
 # Valid file modes for handling snapshots.
 FILE_MODES = frozenset({"r", "w", "x", "a"})
@@ -464,12 +464,12 @@ class File(AbstractContextManager, MutableMapping):
     path: os.PathLike
     mode: t.Optional[str] = "r"
     format: t.Optional[FileFormat] = None
-    data_handlers: T_DataHandlers = attr.ib(default=None, init=False,
-                                            repr=False)
-    _file: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
+    data_handlers: T_DataHandlers = \
+        attr.ib(default=None, init=False, repr=False)
+    stream: T_BinaryIO = attr.ib(default=None, init=False, repr=False)
     _header: Header = attr.ib(default=None, init=False, repr=False)
     _struct: T_Struct = attr.ib(default=None, init=False, repr=False)
-    _temp_storage: T_TempStorage = attr.ib(default=None, init=False, repr=False)
+    _data_buffer: T_DataBuffer = attr.ib(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self):
         """Post-initialization stage."""
@@ -480,8 +480,8 @@ class File(AbstractContextManager, MutableMapping):
         # Force the file to be open in binary mode.
         mode += "b"
         # noinspection PyTypeChecker
-        file: T_BinaryIO = open(self.path, mode)
-        object.__setattr__(self, "_file", file)
+        stream: T_BinaryIO = open(self.path, mode)
+        object.__setattr__(self, "stream", stream)
         # ************ Define the snapshot structure ************
         _format = self.format
         if not self.size:
@@ -489,7 +489,7 @@ class File(AbstractContextManager, MutableMapping):
             if _format is None:
                 object.__setattr__(self, "format", FileFormat.ALT)
             object.__setattr__(self, "_struct", {})
-            object.__setattr__(self, "_temp_storage", {})
+            object.__setattr__(self, "_data_buffer", {})
         else:
             # ************ Define the snapshot Format ************
             if _format is not None:
@@ -499,11 +499,11 @@ class File(AbstractContextManager, MutableMapping):
             object.__setattr__(self, "format", detected_format)
             # ************ Initialize the header ************
             block_size = self._read_size_from_delim()
-            header = Header.from_file(file)
+            header = Header.from_file(stream)
             # Skip the remaining header bytes.
             self._skip(size=block_size - header.size)
             self._skip_block_delim()
-            file.seek(SNAP_START_POS)
+            stream.seek(SNAP_START_POS)
             object.__setattr__(self, "_header", header)
             # ************ Define the block data loaders **************
             # These are the default block data loaders
@@ -512,11 +512,11 @@ class File(AbstractContextManager, MutableMapping):
             # ************ Load block specs ************
             struct: T_Struct = self._define_struct()
             object.__setattr__(self, "_struct", struct)
-            object.__setattr__(self, "_temp_storage", {})
+            object.__setattr__(self, "_data_buffer", {})
 
     @property
     def name(self):
-        return self._file.name
+        return self.stream.name
 
     @property
     def header(self):
@@ -535,9 +535,9 @@ class File(AbstractContextManager, MutableMapping):
     @property
     def size(self):
         """Size of the snapshot in bytes"""
-        act_pos = self._file.tell()
+        cur_pos = self.stream.tell()
         file_size = self._goto_end()
-        self._file.seek(act_pos, io.SEEK_SET)
+        self.stream.seek(cur_pos, io.SEEK_SET)
         return file_size
 
     def is_empty(self):
@@ -552,10 +552,10 @@ class File(AbstractContextManager, MutableMapping):
         if self.is_empty():
             # Only write the header if this file is empty.
             self._write_header(self.header)
-        block_ids = list(self._temp_storage.keys())
+        block_ids = list(self._data_buffer.keys())
         for block_id in block_ids:
             # Remove block from temporary storage.
-            data_buffer = self._temp_storage.pop(block_id)
+            data_buffer = self._data_buffer.pop(block_id)
             self._write_block_data(block_id, data_buffer)
             # Set the block id in the structure.
             self._struct[block_id] = None
@@ -563,7 +563,7 @@ class File(AbstractContextManager, MutableMapping):
     def close(self):
         """Close snapshot."""
         self.flush()
-        self._file.close()
+        self.stream.close()
 
     def _init_data_handlers(self) -> T_DataHandlers:
         """"""
@@ -581,12 +581,12 @@ class File(AbstractContextManager, MutableMapping):
 
         :return: The snapshot format.
         """
-        self__file = self._file
+        stream = self.stream
         size = self._read_size_from_delim()
         if size not in [HEADER_SIZE, ALT_ID_BLOCK_SIZE]:
             # The first block can only have two possible sizes.
             raise FormatError("this is not a valid snapshot file")
-        body_bytes = self__file.read(size)
+        body_bytes = stream.read(size)
         try:
             # Try to read the block ID from the header block
             id_str_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
@@ -598,19 +598,19 @@ class File(AbstractContextManager, MutableMapping):
                 _format = FileFormat.ALT
             else:
                 _format = FileFormat.DEFAULT
-        skip_block_delim(self__file)
+        skip_block_delim(stream)
         if _format is FileFormat.DEFAULT:
             # Reset stream position to the start.
-            self__file.seek(SNAP_START_POS, io.SEEK_SET)
+            stream.seek(SNAP_START_POS, io.SEEK_SET)
         return _format
 
     def _goto_start(self):
         """Go to the snapshot starting position."""
-        return self._file.seek(SNAP_START_POS, io.SEEK_SET)
+        return self.stream.seek(SNAP_START_POS, io.SEEK_SET)
 
     def _goto_end(self):
         """Go to the snapshot ending position."""
-        return self._file.seek(SNAP_START_POS, io.SEEK_END)
+        return self.stream.seek(SNAP_START_POS, io.SEEK_END)
 
     def _read_size_from_delim(self):
         """Read a delimiter block and return its contents. The returned value
@@ -618,7 +618,7 @@ class File(AbstractContextManager, MutableMapping):
 
         :return: Size of following data block in bytes.
         """
-        size_bytes = self._file.read(BLOCK_DELIM_SIZE)
+        size_bytes = self.stream.read(BLOCK_DELIM_SIZE)
         if size_bytes == b"":
             raise SnapshotEOFError
         return int.from_bytes(size_bytes, sys.byteorder)
@@ -628,11 +628,11 @@ class File(AbstractContextManager, MutableMapping):
 
         :return:
         """
-        self__file = self._file
+        stream = self.stream
         size = self._read_size_from_delim()
         if self.format is FileFormat.ALT:
             # Read the block ID from the additional block
-            body_bytes = self__file.read(size)
+            body_bytes = stream.read(size)
             id_bytes = body_bytes[:ID_CHUNK_SIZE].decode("ascii")
             _id = str(id_bytes).rstrip()
             # Get the total size (including delimiter blocks) of
@@ -640,7 +640,7 @@ class File(AbstractContextManager, MutableMapping):
             total_size_bytes = body_bytes[ID_CHUNK_SIZE:]
             total_size = int.from_bytes(total_size_bytes, sys.byteorder)
             self._skip_block_delim()
-            data_stream_pos = self__file.tell()
+            data_stream_pos = stream.tell()
         else:
             # This is the data block. There is no additional block to read
             # the data block ID from.
@@ -648,7 +648,7 @@ class File(AbstractContextManager, MutableMapping):
             total_size = size + 2 * BLOCK_DELIM_SIZE
             # Return to the start of the data block.
             self._skip_block_delim(reverse=True)
-            data_stream_pos = self__file.tell()
+            data_stream_pos = stream.tell()
         return BlockSpec(total_size, data_stream_pos, _id)
 
     def _skip_block_delim(self, reverse: bool = False):
@@ -657,7 +657,7 @@ class File(AbstractContextManager, MutableMapping):
         :param reverse: Skip the block backwards.
         """
         size = -BLOCK_DELIM_SIZE if reverse else BLOCK_DELIM_SIZE
-        self._file.seek(size, io.SEEK_CUR)
+        self.stream.seek(size, io.SEEK_CUR)
 
     def _write_block_delim(self, block_size: int):
         """Write a delimiter block.
@@ -666,7 +666,7 @@ class File(AbstractContextManager, MutableMapping):
         :return:
         """
         size_bytes = block_size.to_bytes(BLOCK_DELIM_SIZE, sys.byteorder)
-        self._file.write(size_bytes)
+        self.stream.write(size_bytes)
 
     def _skip(self, size: int, reverse: bool = False):
         """Skip a block of ``size`` bytes.
@@ -675,7 +675,7 @@ class File(AbstractContextManager, MutableMapping):
         :param reverse: Skip the block backwards.
         """
         size = -size if reverse else size
-        self._file.seek(size, io.SEEK_CUR)
+        self.stream.seek(size, io.SEEK_CUR)
 
     def _skip_block(self, block_spec: BlockSpec):
         """Skip a block of ``block_spec` bytes.
@@ -685,7 +685,7 @@ class File(AbstractContextManager, MutableMapping):
         """
         total_size = block_spec.total_size
         data_stream_pos = block_spec.data_stream_pos
-        self._file.seek(data_stream_pos + total_size, io.SEEK_SET)
+        self.stream.seek(data_stream_pos + total_size, io.SEEK_SET)
 
     def inspect(self):
         """Inspect the structure of a snapshot."""
@@ -695,7 +695,7 @@ class File(AbstractContextManager, MutableMapping):
         """Inspect the structure of a snapshot."""
         # Read snapshot header spec.
         try:
-            self._file.seek(SNAP_START_POS, io.SEEK_SET)
+            self.stream.seek(SNAP_START_POS, io.SEEK_SET)
             header_spec = self._read_block_spec()
             # Update the ID string.
             header_spec = attr.evolve(header_spec, id="HEAD")
@@ -741,7 +741,7 @@ class File(AbstractContextManager, MutableMapping):
         :param block_spec: The block spec.
         """
         data_stream_pos = block_spec.data_stream_pos
-        self._file.seek(data_stream_pos, io.SEEK_SET)
+        self.stream.seek(data_stream_pos, io.SEEK_SET)
 
     def create_block(self, block_id: str, data: t.Mapping[str, t.Any]):
         """Create a new block in the snapshot.
@@ -756,17 +756,17 @@ class File(AbstractContextManager, MutableMapping):
         for par_type in data_buffer.keys():
             # Update the block data.
             data_buffer[par_type] = data.get(par_type, None)
-        self._temp_storage[block_id] = data_buffer
+        self._data_buffer[block_id] = data_buffer
         return self[block_id]
 
     def load_block_par_data(self, block_id: str, par_type: str):
-        """Load positions data from a binary file.
+        """Load positions data from a binary stream.
 
         :param block_id: The block ID.
         :param par_type: The particle type.
         :return: The particle data as a numpy array.
         """
-        file = self._file
+        stream = self.stream
         header = self.header
         data_loader = self.data_handlers[block_id]
         block_spec = self._struct[block_id]
@@ -779,8 +779,8 @@ class File(AbstractContextManager, MutableMapping):
         if block_spec is None:
             err_msg = f"block '{block_id}' not found in snapshot"
             raise FormatError(err_msg)
-        if block_id in self._temp_storage:
-            return self._temp_storage[block_id][par_type]
+        if block_id in self._data_buffer:
+            return self._data_buffer[block_id][par_type]
         par_specs_dict = attr.asdict(header.par_specs, recurse=False)
         par_spec: ParSpec = par_specs_dict[par_type]
         offset = data_loader.offsets[par_type]
@@ -788,10 +788,10 @@ class File(AbstractContextManager, MutableMapping):
         self._goto_block(block_spec)
         self._skip_block_delim()
         # Jump to the data location starting from the current position.
-        file.seek(offset, io.SEEK_CUR)
+        stream.seek(offset, io.SEEK_CUR)
         if not par_spec.num:
             return None
-        data = data_loader.read(file, par_type, par_spec)
+        data = data_loader.read(stream, par_type, par_spec)
         assert data.nbytes == data_loader.sizes[par_type]
         return data
 
@@ -802,13 +802,13 @@ class File(AbstractContextManager, MutableMapping):
         :param block_size: The size of the block.
         :return:
         """
-        self__file = self._file
+        stream = self.stream
         _ics = ID_CHUNK_SIZE
         total_size = block_size + 2 * BLOCK_DELIM_SIZE
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
         size_bytes = total_size.to_bytes(SIZE_CHUNK_SIZE, sys.byteorder)
         id_bytes = f"{block_id:{_ics}.{_ics}}".encode("ascii")
-        self__file.write(id_bytes + size_bytes)
+        stream.write(id_bytes + size_bytes)
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
 
     def _write_header(self, header: Header):
@@ -820,7 +820,7 @@ class File(AbstractContextManager, MutableMapping):
             # Write identifier block.
             self._write_id_block("HEAD", HEADER_SIZE)
         self._write_block_delim(HEADER_SIZE)
-        header.to_file(self._file)
+        header.to_file(self.stream)
         self._write_block_delim(HEADER_SIZE)
 
     def _write_block_data(self, block_id: str,
@@ -831,9 +831,9 @@ class File(AbstractContextManager, MutableMapping):
         :param data_buffer: The block data object.
         :return:
         """
-        file = self._file
+        stream = self.stream
         data_handler = self.data_handlers[block_id]
-        ini_pos = file.tell()
+        ini_pos = stream.tell()
         # We can't know the block size a priori. We write a temporary
         # id block, which we will update later.
         if self.format is FileFormat.ALT:
@@ -844,17 +844,17 @@ class File(AbstractContextManager, MutableMapping):
             data_elem = data_buffer[par_type]
             if data_elem is None:
                 continue
-            block_size += data_handler.write(file, data_elem)
-        final_pos = file.tell()
+            block_size += data_handler.write(stream, data_elem)
+        final_pos = stream.tell()
         # We have to overwrite the ID block and the block delimiter to
         # set the correct block size. It is not elegant, but currently,
         # I can't think about a better approach.
-        file.seek(ini_pos, io.SEEK_SET)
+        stream.seek(ini_pos, io.SEEK_SET)
         if self.format is FileFormat.ALT:
             self._write_id_block(block_id, block_size)
         self._write_block_delim(block_size)
         # Jump to the final position and close the block.
-        file.seek(final_pos, io.SEEK_SET)
+        stream.seek(final_pos, io.SEEK_SET)
         self._write_block_delim(block_size)
 
     def keys(self):
@@ -863,7 +863,7 @@ class File(AbstractContextManager, MutableMapping):
 
     def __contains__(self, block_id: str):
         """Test if a block is present in this snapshot."""
-        if block_id in self._temp_storage:
+        if block_id in self._data_buffer:
             return True
         return block_id in self._struct.keys()
 
@@ -894,18 +894,18 @@ class File(AbstractContextManager, MutableMapping):
 
     def __delitem__(self, block_id: str):
         """Delete a block"""
-        if block_id in self._temp_storage:
-            del self._temp_storage[block_id]
+        if block_id in self._data_buffer:
+            del self._data_buffer[block_id]
             return
         msg = f"a nonempty snapshot does not support blocks deletion"
         raise KeyError(msg)
 
     def __len__(self) -> int:
-        return len(self._struct) + len(self._temp_storage)
+        return len(self._struct) + len(self._data_buffer)
 
     def __iter__(self):
         struct_block_ids = self._struct.keys()
-        temp_storage_block_ids = self._temp_storage.keys()
+        temp_storage_block_ids = self._data_buffer.keys()
         return chain(struct_block_ids, temp_storage_block_ids)
 
     def __exit__(self, exc_type, exc_value, traceback):
