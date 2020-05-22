@@ -203,6 +203,10 @@ blocks_help = "A (comma-separated) list of the data blocks ids that will be " \
               "default, only the positions get merged."
 file_format_help = "The file format of the resulting snapshot. The " \
                    "enhanced format ALT is equivalent to SnapFormat=2."
+target_help = "Specify a file path where to save the merged snapshot. " \
+              "By default, this snapshot is saved in the same location as " \
+              "the base snapshot with a modified name based on the current " \
+              "date and time."
 dry_run_help = "Output the operations but do not execute anything"
 merge_set_text = stylize("Executing snapshot merging tool",
                          FG_ORANGE + BOLD_TXT)
@@ -213,8 +217,11 @@ merge_set_text = stylize("Executing snapshot merging tool",
 @click.option("--blocks", type=str, default="POS", help=blocks_help)
 @click.option("-f", "--file-format", type=file_format_type, default="ALT",
               help=file_format_help)
+@click.option("-t", "--target", type=click.Path(dir_okay=False),
+              default=None, help=target_help)
 @click.option("--dry-run", is_flag=True, default=False, help=dry_run_help)
-def merge_set(base_path: str, blocks: str, file_format: str, dry_run: bool):
+def merge_set(base_path: str, blocks: str, file_format: str, target: str,
+              dry_run: bool):
     """Merge a set of related GADGET-2 snapshots."""
     # Message.
     print(f"{merge_set_text}")
@@ -222,7 +229,7 @@ def merge_set(base_path: str, blocks: str, file_format: str, dry_run: bool):
     with File(base_path) as base_snap:
         num_files_snap = base_snap.header.num_files_snap
     # Message.
-    base_path_txt = stylize(base_path, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    base_path_txt = stylize(base_path.absolute(), FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
     num_snap_txt = stylize(num_files_snap, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
     print(f"Base path: {base_path_txt}")
     print(f"Number of snapshots in collection: {num_snap_txt}")
@@ -234,12 +241,16 @@ def merge_set(base_path: str, blocks: str, file_format: str, dry_run: bool):
                 raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
             snap_set.append(File(path))
     snap_format: FileFormat = FileFormat[file_format.upper()]
-    format_suffix = f"fmt-{snap_format.name.upper()}"
-    dt_suffix = pendulum.now().format("YYYYMMMDD_hhmmssA_zzZZ")
-    merged_name = f"{base_path.stem}_merged_{format_suffix}_{dt_suffix}"
-    merged_path = base_path.with_name(merged_name)
+    if target is not None:
+        merged_path = pathlib.Path(target)
+    else:
+        format_suffix = f"fmt-{snap_format.name.upper()}"
+        dt_suffix = pendulum.now().format("YYYYMMMDD_hhmmssA_zzZZ")
+        merged_name = f"{base_path.stem}_merged_{format_suffix}_{dt_suffix}"
+        merged_path = base_path.with_name(merged_name)
     # Message.
-    merged_path_txt = stylize(merged_path, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    merged_path_txt = stylize(merged_path.absolute(),
+                              FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
     print(f"Merged snapshot path: {merged_path_txt}")
     if snap_format is FileFormat.DEFAULT:
         snap_format_txt = "DEFAULT (SnapFormat=1)"
