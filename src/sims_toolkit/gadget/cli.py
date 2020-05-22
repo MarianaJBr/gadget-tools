@@ -8,6 +8,7 @@ from itertools import filterfalse
 import attr
 import click
 import numpy as np
+import pendulum
 from colored import attr as c_attr, fg, stylize
 from sims_toolkit.gadget.snapshot import Block, File, FileFormat, Header
 from tabulate import tabulate
@@ -219,9 +220,11 @@ def merge_set(base_path: str, blocks: str, file_format: str):
         if not path.exists():
             raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
         snap_set.append(File(path))
-    merged_suffix = f".merged-{0}-{num_files_snap}"
-    merged_path = base_path.with_suffix(merged_suffix)
-    snap_format = FileFormat[file_format.upper()]
+    snap_format: FileFormat = FileFormat[file_format.upper()]
+    format_suffix = f"fmt-{snap_format.name.upper()}"
+    dt_suffix = pendulum.now().format("YYYYMMMDD_hhmmssA_zzZZ")
+    merged_name = f"{base_path.stem}_merged_{format_suffix}_{dt_suffix}"
+    merged_path = base_path.with_name(merged_name)
     # Create snapshot to store the merged data.
     new_snap = File(merged_path, "w", format=snap_format)
     headers = (snap.header for snap in snap_set)
