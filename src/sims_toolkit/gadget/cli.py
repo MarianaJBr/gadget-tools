@@ -16,6 +16,7 @@ from tabulate import tabulate
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
 
 FG_CYAN = fg("cyan_2")
+FG_DEEP_SKY_BLUE_1 = fg("deep_sky_blue_1")
 FG_RED = fg("red")
 FG_ORANGE = fg("orange_1")
 BOLD_TXT = c_attr("bold")
@@ -202,6 +203,9 @@ blocks_help = "A (comma-separated) list of the data blocks ids that will be " \
               "default, only the positions get merged."
 file_format_help = "The file format of the resulting snapshot. The " \
                    "enhanced format ALT is equivalent to SnapFormat=2."
+dry_run_help = "Output the operations but do not execute anything"
+merge_set_text = stylize("Executing snapshot merging tool",
+                         FG_ORANGE + BOLD_TXT)
 
 
 @gadget_snap.command()
@@ -209,38 +213,67 @@ file_format_help = "The file format of the resulting snapshot. The " \
 @click.option("--blocks", type=str, default="POS", help=blocks_help)
 @click.option("-f", "--file-format", type=file_format_type, default="ALT",
               help=file_format_help)
-def merge_set(base_path: str, blocks: str, file_format: str):
+@click.option("--dry-run", is_flag=True, default=False, help=dry_run_help)
+def merge_set(base_path: str, blocks: str, file_format: str, dry_run: bool):
     """Merge a set of related GADGET-2 snapshots."""
+    # Message.
+    print(f"{merge_set_text}")
     base_path = pathlib.Path(base_path)
     with File(base_path) as base_snap:
         num_files_snap = base_snap.header.num_files_snap
+    # Message.
+    base_path_txt = stylize(base_path, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    num_snap_txt = stylize(num_files_snap, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    print(f"Base path: {base_path_txt}")
+    print(f"Number of snapshots in collection: {num_snap_txt}")
     snap_set = []
-    for idx in range(num_files_snap):
-        path = base_path.with_suffix(f".{idx}")
-        if not path.exists():
-            raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
-        snap_set.append(File(path))
+    if not dry_run:
+        for idx in range(num_files_snap):
+            path = base_path.with_suffix(f".{idx}")
+            if not path.exists():
+                raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
+            snap_set.append(File(path))
     snap_format: FileFormat = FileFormat[file_format.upper()]
     format_suffix = f"fmt-{snap_format.name.upper()}"
     dt_suffix = pendulum.now().format("YYYYMMMDD_hhmmssA_zzZZ")
     merged_name = f"{base_path.stem}_merged_{format_suffix}_{dt_suffix}"
     merged_path = base_path.with_name(merged_name)
+    # Message.
+    merged_path_txt = stylize(merged_path, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    print(f"Merged snapshot path: {merged_path_txt}")
+    if snap_format is FileFormat.DEFAULT:
+        snap_format_txt = "DEFAULT (SnapFormat=1)"
+    else:
+        snap_format_txt = "ALT (SnapFormat=2)"
+    snap_format_txt = stylize(snap_format_txt, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+    print(f"Format of merged snapshot: {snap_format_txt}")
     # Create snapshot to store the merged data.
-    new_snap = File(merged_path, "w", format=snap_format)
-    headers = (snap.header for snap in snap_set)
-    new_snap.header = reduce(merge_headers, headers)
-    # Save to file.
-    new_snap.flush()
+    print(f"Checking and combining information from snapshot headers")
+    if not dry_run:
+        new_snap = File(merged_path, "w", format=snap_format)
+        headers = (snap.header for snap in snap_set)
+        new_snap.header = reduce(merge_headers, headers)
+        # Save to file.
+        new_snap.flush()
     block_ids = blocks.split(",")
     for block_id in block_ids:
-        block_set = [snap[block_id] for snap in snap_set]
-        merged_block_data = merge_block_set(block_set, new_snap.header)
-        new_snap[block_id] = merged_block_data
-        new_snap.flush()
-    # Save block contents to file.
-    new_snap.close()
-    for snap in snap_set:
-        snap.close()
+        block_id_txt = stylize(block_id, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+        print(f"Combining snapshots blocks with id {block_id_txt}")
+        if not dry_run:
+            block_set = [snap[block_id] for snap in snap_set]
+            # noinspection PyUnboundLocalVariable
+            merged_block_data = merge_block_set(block_set, new_snap.header)
+            new_snap[block_id] = merged_block_data
+            new_snap.flush()
+    print("Completed")
+    print("Closing merged snapshot and collection")
+    if not dry_run:
+        # Save block contents to file.
+        new_snap.close()
+        for snap in snap_set:
+            snap.close()
+    success_txt = stylize("Success", FG_ORANGE + BOLD_TXT)
+    print(f"{success_txt}")
 
 
 if __name__ == '__main__':
