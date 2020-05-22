@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sims-toolkit"
-version = "0.1.1"
+version = "0.2.0"
 description = "A collection of libraries and scripts to analyze the outputs of cosmological simulations."
 readme = "README.md"
 authors = [
