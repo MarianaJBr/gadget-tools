@@ -381,14 +381,13 @@ class DataHandler:
              par_spec: ParSpec) -> np.ndarray:
         pass
 
-    def write(self, file: T_BinaryIO, data_elem: np.ndarray):
+    def write(self, file: T_BinaryIO, data_array: np.ndarray):
         """Write particle data to a binary file.
 
         :param file: A binary file.
-        :param data_elem: The particle data.
+        :param data_array: The particle data.
         :return: The number of bytes written.
         """
-        data_array = data_elem.data
         if data_array is None:
             return 0
         data_array = np.asarray(data_array, dtype=self.dtype)
@@ -755,7 +754,18 @@ class File(AbstractContextManager, MutableMapping):
         data_buffer = {par_type: None for par_type in par_specs}
         for par_type in data_buffer.keys():
             # Update the block data.
-            data_buffer[par_type] = data.get(par_type, None)
+            par_data = data.get(par_type, None)
+            if par_data is None:
+                data_buffer[par_type] = None
+            else:
+                if isinstance(par_data, BlockElement):
+                    # We want the BlockElement instance data.
+                    data_buffer[par_type] = par_data.data
+                else:
+                    # Any other object will be converted to a numpy array
+                    # if possible.
+                    # noinspection PyTypeChecker
+                    data_buffer[par_type] = np.asarray(par_data)
         self._data_buffer[block_id] = data_buffer
         return self[block_id]
 
@@ -841,10 +851,10 @@ class File(AbstractContextManager, MutableMapping):
         self._write_block_delim(0)
         block_size = 0
         for par_type in data_buffer:
-            data_elem = data_buffer[par_type]
-            if data_elem is None:
+            data_array = data_buffer[par_type]
+            if data_array is None:
                 continue
-            block_size += data_handler.write(stream, data_elem)
+            block_size += data_handler.write(stream, data_array)
         final_pos = stream.tell()
         # We have to overwrite the ID block and the block delimiter to
         # set the correct block size. It is not elegant, but currently,
