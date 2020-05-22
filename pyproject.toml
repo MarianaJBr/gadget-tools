@@ -44,6 +44,7 @@ tqdm = "^4.46.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.3.5"
+mkdocs = "^1.1.2"
 
 [tool.poetry.scripts]
 sims-toolkit = "sims_toolkit.gadget.cli:main"
