@@ -1,5 +1,6 @@
 import os
 import pathlib
+import sys
 import typing as t
 from errno import ENOENT
 from functools import reduce
@@ -12,6 +13,7 @@ import pendulum
 from colored import attr as c_attr, fg, stylize
 from sims_toolkit.gadget.snapshot import Block, File, FileFormat, Header
 from tabulate import tabulate
+from tqdm import tqdm
 
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
 
@@ -187,9 +189,14 @@ def merge_block_set(block_set: t.Iterable[Block], header: Header):
         """Return True if an object is None"""
         return _obj is None
 
+    num_files_snap = header.num_files_snap
     data_buffer = {par_type: None for par_type in attr.asdict(header.par_specs)}
     for par_type in data_buffer.keys():
-        par_data_gen = (block[par_type].data for block in block_set)
+        par_type_label = stylize(f"{par_type.upper()}",
+                                 FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
+        par_data_gen = tqdm((block[par_type].data for block in block_set),
+                            total=num_files_snap, file=sys.stdout,
+                            desc=par_type_label)
         par_data_list = list(filterfalse(is_none, par_data_gen))
         par_data = np.concatenate(par_data_list) if par_data_list else None
         data_buffer[par_type] = par_data
@@ -259,13 +266,15 @@ def merge_set(base_path: str, blocks: str, file_format: str, target: str,
     snap_format_txt = stylize(snap_format_txt, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
     print(f"Format of merged snapshot: {snap_format_txt}")
     # Create snapshot to store the merged data.
-    print(f"Checking and combining information from snapshot headers")
+    print(f"Checking and combining information from snapshot headers...",
+          end=" ")
     if not dry_run:
         new_snap = File(merged_path, "w", format=snap_format)
         headers = (snap.header for snap in snap_set)
         new_snap.header = reduce(merge_headers, headers)
         # Save to file.
         new_snap.flush()
+    print(stylize("OK", FG_ORANGE + BOLD_TXT))
     block_ids = blocks.split(",")
     for block_id in block_ids:
         block_id_txt = stylize(block_id, FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
@@ -276,14 +285,14 @@ def merge_set(base_path: str, blocks: str, file_format: str, target: str,
             merged_block_data = merge_block_set(block_set, new_snap.header)
             new_snap[block_id] = merged_block_data
             new_snap.flush()
-    print("Completed")
+    print("Merging completed")
     print("Closing merged snapshot and collection")
     if not dry_run:
         # Save block contents to file.
         new_snap.close()
         for snap in snap_set:
             snap.close()
-    success_txt = stylize("Success", FG_ORANGE + BOLD_TXT)
+    success_txt = stylize("Success!!!", FG_ORANGE + BOLD_TXT)
     print(f"{success_txt}")
 
 
