@@ -457,7 +457,7 @@ class DataHandlers:
 
 
 @attr.s(auto_attribs=True)
-class File(AbstractContextManager, MutableMapping):
+class Snapshot(AbstractContextManager, MutableMapping):
     """Represent a GADGET-2 snapshot file."""
 
     path: os.PathLike

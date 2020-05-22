@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from dotenv import load_dotenv
-from sims_toolkit.gadget import File
+from sims_toolkit.gadget import Snapshot
 from sims_toolkit.gadget.snapshot import (
     FileFormat, Header, header_dtype
 )
@@ -55,7 +55,7 @@ def dummy_snap_block(dummy_snap_header):
 
 def test_read(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         print(snap)
 
 
@@ -64,20 +64,20 @@ def test_read_invalid_mode(snapshot_path):
     with pytest.raises(ValueError):
         # Although snapshots are open as binary, the mode does not accept
         # the ``b`` modifier.
-        with File(snapshot_path, "rb") as snap:
+        with Snapshot(snapshot_path, "rb") as snap:
             print(snap)
 
 
 def test_inspect(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         block_specs = snap.inspect()
         print(block_specs)
 
 
 def test_load_blocks(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         positions1 = snap["POS"]
         velocities = snap["VEL"]
         positions2 = snap["POS"]
@@ -89,7 +89,7 @@ def test_load_blocks(snapshot_path):
 
 def test_iter(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         for block in snap.values():
             print("************ Block ************")
             print(block)
@@ -98,9 +98,9 @@ def test_iter(snapshot_path):
 
 def test_copy(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         new_snap_path = snapshot_path + "-test-copy"
-        with File(new_snap_path, "w") as new_snap:
+        with Snapshot(new_snap_path, "w") as new_snap:
             # First assign the header.
             new_snap.header = snap.header
             # Block assignment order matters.
@@ -112,9 +112,9 @@ def test_copy(snapshot_path):
 
 def test_compare_copy(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         new_snap_path = snapshot_path + "-test-copy"
-        with File(new_snap_path) as new_snap:
+        with Snapshot(new_snap_path) as new_snap:
             assert new_snap.format is FileFormat.ALT
             assert new_snap.header == snap.header
             print(new_snap.inspect())
@@ -122,9 +122,10 @@ def test_compare_copy(snapshot_path):
 
 def test_copy_default_format(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         new_snap_path = snapshot_path + "-test-copy"
-        with File(new_snap_path, "w", format=FileFormat.DEFAULT) as new_snap:
+        with Snapshot(new_snap_path, "w",
+                      format=FileFormat.DEFAULT) as new_snap:
             # First assign the header.
             new_snap.header = snap.header
             # Block assignment order matters.
@@ -136,9 +137,9 @@ def test_copy_default_format(snapshot_path):
 
 def test_compare_copy_default_format(snapshot_path):
     """"""
-    with File(snapshot_path) as snap:
+    with Snapshot(snapshot_path) as snap:
         new_snap_path = snapshot_path + "-test-copy"
-        with File(new_snap_path) as new_snap:
+        with Snapshot(new_snap_path) as new_snap:
             assert new_snap.format is FileFormat.DEFAULT
             assert new_snap.header == snap.header
             print(new_snap.inspect())
@@ -147,9 +148,9 @@ def test_compare_copy_default_format(snapshot_path):
 def test_copy_block_twice(snapshot_path):
     """"""
     with pytest.raises(KeyError):
-        with File(snapshot_path) as snap:
+        with Snapshot(snapshot_path) as snap:
             new_snap_path = snapshot_path + "-test-snap"
-            with File(new_snap_path, "w") as new_snap:
+            with Snapshot(new_snap_path, "w") as new_snap:
                 # First assign the header.
                 new_snap.header = snap.header
                 # This must fail.
@@ -163,7 +164,7 @@ def test_create(dummy_snap_header, dummy_snap_block):
     """"""
     file_path = Path(os.path.join(os.getcwd(), "test-dummy-snap"))
     file_format = FileFormat.ALT
-    with File(file_path, "w", format=file_format) as snap:
+    with Snapshot(file_path, "w", format=file_format) as snap:
         # Assign new header and block.
         snap.header = dummy_snap_header
         snap["POS"] = dummy_snap_block
@@ -174,6 +175,6 @@ def test_create(dummy_snap_header, dummy_snap_block):
 def test_read_created(dummy_snap_header):
     """"""
     file_path = Path(os.path.join(os.getcwd(), "test-dummy-snap"))
-    with File(file_path) as snap:
+    with Snapshot(file_path) as snap:
         assert snap.header == dummy_snap_header
         print(snap["POS"])

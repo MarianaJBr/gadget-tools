@@ -11,9 +11,10 @@ import click
 import numpy as np
 import pendulum
 from colored import attr as c_attr, fg, stylize
-from sims_toolkit.gadget.snapshot import Block, File, FileFormat, Header
 from tabulate import tabulate
 from tqdm import tqdm
+
+from .snapshot import Block, FileFormat, Header, Snapshot
 
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
 
@@ -29,10 +30,10 @@ def info_label(text: str):
     return stylize(text, BOLD_TXT)
 
 
-def describe_snapshot(snap: File):
+def describe_snapshot(snap: Snapshot):
     """Show the basic info of a GADGET-2 snapshot.
 
-    :param snap: The File instance that represents the snapshot.
+    :param snap: The Snapshot instance that represents the snapshot.
     :return: The information as a string.
     """
     header = snap.header
@@ -146,7 +147,7 @@ def gadget_snap():
 @click.argument("path", type=click.Path(exists=True))
 def describe(path: str):
     """Describe the contents of a GADGET-2 snapshot."""
-    snap = File(pathlib.Path(path))
+    snap = Snapshot(pathlib.Path(path))
     description = describe_snapshot(snap)
     click.echo_via_pager(description)
 
@@ -233,7 +234,7 @@ def merge_set(base_path: str, blocks: str, file_format: str, target: str,
     # Message.
     print(f"{merge_set_text}")
     base_path = pathlib.Path(base_path)
-    with File(base_path) as base_snap:
+    with Snapshot(base_path) as base_snap:
         num_files_snap = base_snap.header.num_files_snap
     # Message.
     base_path_txt = stylize(base_path.absolute(), FG_DEEP_SKY_BLUE_1 + BOLD_TXT)
@@ -246,7 +247,7 @@ def merge_set(base_path: str, blocks: str, file_format: str, target: str,
             path = base_path.with_suffix(f".{idx}")
             if not path.exists():
                 raise FileNotFoundError(ENOENT, os.strerror(ENOENT), path)
-            snap_set.append(File(path))
+            snap_set.append(Snapshot(path))
     snap_format: FileFormat = FileFormat[file_format.upper()]
     if target is not None:
         merged_path = pathlib.Path(target)
@@ -269,7 +270,7 @@ def merge_set(base_path: str, blocks: str, file_format: str, target: str,
     print(f"Checking and combining information from snapshot headers...",
           end=" ")
     if not dry_run:
-        new_snap = File(merged_path, "w", format=snap_format)
+        new_snap = Snapshot(merged_path, "w", format=snap_format)
         headers = (snap.header for snap in snap_set)
         new_snap.header = reduce(merge_headers, headers)
         # Save to file.
