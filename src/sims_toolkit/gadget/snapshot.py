@@ -71,7 +71,8 @@ def write_block_delim(file: T_BinaryIO, block_size: int):
     :param file: Snapshot file.
     :param block_size:
     """
-    size_bytes = int.to_bytes(block_size, BLOCK_DELIM_SIZE, sys.byteorder)
+    size_bytes = int.to_bytes(block_size, BLOCK_DELIM_SIZE, sys.byteorder,
+                              signed=False)
     file.write(size_bytes)
 
 
@@ -664,7 +665,8 @@ class Snapshot(AbstractContextManager, MutableMapping):
         :param block_size: The size in bytes of the delimited block.
         :return:
         """
-        size_bytes = block_size.to_bytes(BLOCK_DELIM_SIZE, sys.byteorder)
+        size_bytes = block_size.to_bytes(BLOCK_DELIM_SIZE, sys.byteorder,
+                                         signed=False)
         self.stream.write(size_bytes)
 
     def _skip(self, size: int, reverse: bool = False):
@@ -816,7 +818,8 @@ class Snapshot(AbstractContextManager, MutableMapping):
         _ics = ID_CHUNK_SIZE
         total_size = block_size + 2 * BLOCK_DELIM_SIZE
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
-        size_bytes = total_size.to_bytes(SIZE_CHUNK_SIZE, sys.byteorder)
+        size_bytes = total_size.to_bytes(SIZE_CHUNK_SIZE, sys.byteorder,
+                                         signed=False)
         id_bytes = f"{block_id:{_ics}.{_ics}}".encode("ascii")
         stream.write(id_bytes + size_bytes)
         self._write_block_delim(ALT_ID_BLOCK_SIZE)
