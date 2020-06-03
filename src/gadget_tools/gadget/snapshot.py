@@ -86,7 +86,7 @@ def read_size_from_delim(file: T_BinaryIO):
     size_bytes = file.read(BLOCK_DELIM_SIZE)
     if size_bytes == b"":
         raise SnapshotEOFError
-    return int.from_bytes(size_bytes, sys.byteorder)
+    return int.from_bytes(size_bytes, sys.byteorder, signed=False)
 
 
 def skip_block_delim(file: T_BinaryIO, reverse: bool = False):
@@ -621,7 +621,7 @@ class Snapshot(AbstractContextManager, MutableMapping):
         size_bytes = self.stream.read(BLOCK_DELIM_SIZE)
         if size_bytes == b"":
             raise SnapshotEOFError
-        return int.from_bytes(size_bytes, sys.byteorder)
+        return int.from_bytes(size_bytes, sys.byteorder, signed=False)
 
     def _read_block_spec(self):
         """Load the identified and size of a snapshot block.
@@ -638,7 +638,8 @@ class Snapshot(AbstractContextManager, MutableMapping):
             # Get the total size (including delimiter blocks) of
             # the block's data.
             total_size_bytes = body_bytes[ID_CHUNK_SIZE:]
-            total_size = int.from_bytes(total_size_bytes, sys.byteorder)
+            total_size = int.from_bytes(total_size_bytes, sys.byteorder,
+                                        signed=False)
             self._skip_block_delim()
             data_stream_pos = stream.tell()
         else:

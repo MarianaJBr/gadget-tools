@@ -4,8 +4,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 from dotenv import load_dotenv
-from sims_toolkit.gadget import Snapshot
-from sims_toolkit.gadget.snapshot import (
+
+from gadget_tools.gadget import Snapshot
+from gadget_tools.gadget.snapshot import (
     FileFormat, Header, header_dtype
 )
 

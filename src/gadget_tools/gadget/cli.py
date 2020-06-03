@@ -133,7 +133,7 @@ def describe_block(block: Block):
 
 @click.group()
 def main():
-    """Sims-Toolkit Command Line Interface."""
+    """Gadget-Tools Command Line Interface."""
     pass
 
 
