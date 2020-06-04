@@ -137,13 +137,7 @@ def main():
     pass
 
 
-@main.group()
-def gadget_snap():
-    """Command group for GADGET-2 snapshot operations."""
-    pass
-
-
-@gadget_snap.command()
+@main.command()
 @click.argument("path", type=click.Path(exists=True))
 def describe(path: str):
     """Describe the contents of a GADGET-2 snapshot."""
@@ -220,7 +214,7 @@ merge_set_text = stylize("Executing snapshot merging tool",
                          FG_ORANGE + BOLD_TXT)
 
 
-@gadget_snap.command()
+@main.command()
 @click.argument("base-path", type=click.Path(exists=True))
 @click.option("--blocks", type=str, default="POS", help=blocks_help)
 @click.option("-f", "--file-format", type=file_format_type, default="ALT",
