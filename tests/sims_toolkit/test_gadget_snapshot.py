@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 from dotenv import load_dotenv
 
-from gadget_tools.gadget import Snapshot
-from gadget_tools.gadget.snapshot import (
+from gadget_tools.io import Snapshot
+from gadget_tools.io.snapshot import (
     FileFormat, Header, header_dtype
 )
 
