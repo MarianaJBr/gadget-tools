@@ -14,7 +14,7 @@ from colored import attr as c_attr, fg, stylize
 from tabulate import tabulate
 from tqdm import tqdm
 
-from .snapshot import Block, FileFormat, Header, Snapshot
+from ..gadget.snapshot import Block, FileFormat, Header, Snapshot
 
 T_BlockDataAttrs = t.Dict[str, np.ndarray]
 
